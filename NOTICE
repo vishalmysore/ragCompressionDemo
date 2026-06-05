@@ -1,0 +1,42 @@
+RAG Compression Demo
+Copyright 2026 RAG Compression Demo Contributors
+
+This product is licensed under the Apache License, Version 2.0.
+
+---
+
+This product includes algorithms ported from the Headroom project:
+
+  Headroom — Context Compression Library
+  https://github.com/chopratejas/headroom
+  Copyright (c) Tejas Chopra and contributors
+  Licensed under the Apache License, Version 2.0
+
+The following source files are derivative works of Headroom:
+
+  src/lib/headroom-engine/adaptive-sizer.ts
+    Ported from: crates/headroom-core/src/transforms/adaptive_sizer.rs
+    Algorithms: SimHash (4-gram MD5 bit-voting), Kneedle knee-detection,
+    zlib-ratio validation, compute_optimal_k adaptive sizer.
+
+  src/lib/headroom-engine/smart-crusher.ts
+    Ported from: crates/headroom-core/src/transforms/smart_crusher/
+    Algorithms: JSON array type classification, k-split (first/last/importance
+    buckets with banker's rounding and BUG #4 fix), dict/string/number array
+    crushers with error-keyword anchoring and stride-fill.
+
+  src/lib/headroom-engine/log-compressor.ts
+    Ported from: crates/headroom-core/src/transforms/log_compressor.rs
+    Algorithms: Log format detection (pytest/npm/cargo/jest/make/generic),
+    per-line level scoring (ERROR=1.0, WARN=0.5, INFO=0.1, DEBUG=0.0),
+    stack-trace state machine, adaptive-budget selection.
+
+  src/lib/headroom-engine/text-compressor.ts
+    Ported from: crates/headroom-core/src/signals/keyword_detector.rs
+                 crates/headroom-core/src/signals/line_importance.rs
+    Algorithms: Keyword priority tiers (error=0.95, security=0.85,
+    warning=0.75, importance=0.60, markdown=0.45). The 'token' exclusion
+    from the security keyword set is a bug fix from the original source.
+
+You may obtain a copy of the Apache License at:
+  http://www.apache.org/licenses/LICENSE-2.0

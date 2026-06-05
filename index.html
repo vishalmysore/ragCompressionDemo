@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAG Compression Demo</title>
+    <!-- PDF.js via CDN — same version as advancedRag -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <!-- coi-serviceworker: injects COOP/COEP headers for WebGPU/SharedArrayBuffer.
+         Cross-origin requests (CDN, fonts) are passed through unmodified. -->
+    <script>
+      if (typeof SharedArrayBuffer === "undefined") {
+        const sw = navigator.serviceWorker;
+        if (sw) {
+          sw.register("./coi-serviceworker.js").then(() => {
+            if (!sw.controller) window.location.reload();
+          });
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
