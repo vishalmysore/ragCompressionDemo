@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import type { DiffChunk } from '../lib/compression-sim.ts'
 
 interface Props {

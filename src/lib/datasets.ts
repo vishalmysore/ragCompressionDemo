@@ -245,7 +245,6 @@ if __name__ == "__main__":
 function generateLogDataset(): string {
   const lines: string[] = []
   const services = ['api-gateway', 'auth-service', 'db-proxy', 'cache-layer', 'worker-pool']
-  const _levels = ['INFO', 'DEBUG', 'DEBUG', 'DEBUG', 'WARN', 'ERROR']
   const now = Date.now()
 
   for (let i = 0; i < 200; i++) {
