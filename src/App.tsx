@@ -102,7 +102,7 @@ export default function App() {
       if (!results.length) { setSearching(false); return }
       const chunks = results.map((r: any) => ({ pageNumber: r.page_number, content: r.content, tokens: countTokens(r.content) }))
       setRawChunks(chunks)
-      const raw = chunks.map(c => `[Page ${c.pageNumber}]\n${c.content}`).join('\n\n')
+      const raw = chunks.map((c: {pageNumber:number;content:string;tokens:number}) => `[Page ${c.pageNumber}]\n${c.content}`).join('\n\n')
       setRawContext(raw)
       setContexts(buildContexts(raw, question))
     } finally { setSearching(false) }

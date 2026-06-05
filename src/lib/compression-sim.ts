@@ -82,7 +82,7 @@ function simSmartCrusher(content: string, config: SimConfig): SimResult {
   return buildResult(content, compressed, 'SmartCrusher', diffs)
 }
 
-function simCodeCompressor(content: string, config: SimConfig): SimResult {
+function simCodeCompressor(content: string, _config: SimConfig): SimResult {
   const diffs: DiffChunk[] = []
   let compressed = content
 
@@ -108,7 +108,7 @@ function simCodeCompressor(content: string, config: SimConfig): SimResult {
   return buildResult(content, compressed, 'CodeAwareCompressor', diffs)
 }
 
-function simLogCompressor(content: string, config: SimConfig): SimResult {
+function simLogCompressor(content: string, _config: SimConfig): SimResult {
   const diffs: DiffChunk[] = []
   const lines = content.split('\n')
   const kept: string[] = []
@@ -143,7 +143,7 @@ function simLogCompressor(content: string, config: SimConfig): SimResult {
   return buildResult(content, compressed, 'LogCompressor', diffs)
 }
 
-function simTextCompressor(content: string, config: SimConfig): SimResult {
+function simTextCompressor(content: string, _config: SimConfig): SimResult {
   const diffs: DiffChunk[] = []
   let compressed = content
 

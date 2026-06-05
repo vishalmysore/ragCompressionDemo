@@ -1,4 +1,4 @@
-import React from 'react'
+
 import type { HeadroomConfig } from '../lib/headroom.ts'
 
 interface Props {

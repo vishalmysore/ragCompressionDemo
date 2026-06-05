@@ -63,7 +63,7 @@ const LEVEL_SCORE: Record<LogLevel, number> = {
 // at "Traceback" / "Error:" / "  at " and ends on non-indented non-blank
 // line AFTER at least one indented frame.
 
-function isStackTraceLine(line: string, prevLines: string[]): boolean {
+function isStackTraceLine(line: string, _prevLines: string[]): boolean {
   if (/^\s+(at |File "|in <)/.test(line)) return true
   if (/^(Traceback|Caused by:|Exception:|Error:)/.test(line)) return true
   // JS: "at functionName (file:line:col)"

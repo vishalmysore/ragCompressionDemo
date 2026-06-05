@@ -26,7 +26,7 @@ const KEEP_PATTERNS: RegExp[] = [
 ]
 
 // Patterns that signal the start of a function/method body to collapse
-const BODY_START_RE = /^(\s+)(.*):(\s*#.*)?$/
+// const BODY_START_RE = /^(\s+)(.*):(\s*#.*)?$/
 const DEF_RE = /^(\s*)(async\s+)?def\s+\w+|^(\s*)(public|private|protected|static|\s)*(async\s+)?function\s+\w+/
 
 // Comment removal pattern (keep type comments)
@@ -42,7 +42,7 @@ export function compressCode(text: string): CodeCompressResult {
 
   const output: string[] = []
   let i = 0
-  let bodyDepth = 0
+  // bodyDepth unused — tracked via indent comparison
   let bodyIndent = ''
   let inBody = false
   let bodyLineCount = 0

@@ -1,4 +1,4 @@
-import React from 'react'
+
 import type { CompressOutput } from '../lib/headroom.ts'
 import { estimateCost } from '../lib/tokenizer.ts'
 
@@ -49,8 +49,8 @@ export function TelemetryDock({ result, ttft }: Props) {
         <span className="px-2 py-0.5 bg-indigo-900/60 border border-indigo-700 text-indigo-300 rounded text-[10px] font-bold">
           {result.pipeline}
         </span>
-        <span className={`ml-auto px-1.5 py-0.5 rounded text-[10px] ${result.mode === 'real' ? 'bg-green-900/50 text-green-300 border border-green-700' : 'bg-blue-900/50 text-blue-300 border border-blue-700'}`}>
-          {result.mode === 'real' ? 'LIVE' : 'LOCAL'}
+        <span className="ml-auto px-1.5 py-0.5 rounded text-[10px] bg-blue-900/50 text-blue-300 border border-blue-700">
+          LOCAL
         </span>
       </div>
 

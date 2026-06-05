@@ -1,5 +1,8 @@
-import React, { useState, useCallback, useRef } from 'react'
-import { ccrKeys, ccrRetrieve } from '../lib/headroom.ts'
+import { useState, useCallback, useRef } from 'react'
+
+// CCR stubs — proxy removed, these are no-ops retained for future use
+const ccrKeys = () => [] as string[]
+const ccrRetrieve = (_hash: string) => undefined as string | undefined
 
 interface Props {
   compressedContent: string | null
