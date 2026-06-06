@@ -35,7 +35,7 @@ export default function App() {
   const engineRef = useRef<any>(null)
 
   const [question, setQuestion]   = useState('')
-  const [rawChunks, setRawChunks] = useState<{pageNumber:number;content:string;tokens:number}[]>([])
+  const [_rawChunks, setRawChunks] = useState<{pageNumber:number;content:string;tokens:number}[]>([])
   const [rawContext, setRawContext] = useState('')
   const [searching, setSearching] = useState(false)
 
