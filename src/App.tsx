@@ -18,7 +18,7 @@ type ModelStatus = 'idle' | 'loading' | 'ready' | 'no-webgpu' | 'error'
 
 const CATEGORY_COLORS: Record<string, string> = {
   baseline: 'text-gray-400',
-  headroom: 'text-cyan-400',
+  smart:    'text-cyan-400',
   classic:  'text-yellow-400',
   advanced: 'text-purple-400',
 }
@@ -222,14 +222,15 @@ export default function App() {
           {/* Legend */}
           <div className="border-t border-gray-800 pt-2">
             <div className="text-[9px] text-gray-500 uppercase font-bold mb-1.5">Techniques</div>
-            {(['baseline','headroom','classic','advanced'] as const).map(cat => (
+            {(['baseline','smart','classic','advanced'] as const).map(cat => (
               <div key={cat} className="flex items-center gap-1.5 mb-1">
                 <span className={`text-[9px] font-bold ${CATEGORY_COLORS[cat]} w-16`}>{cat}</span>
                 <span className="text-[9px] text-gray-600">
-                  {cat==='baseline'?'None / Truncation':cat==='headroom'?'Ported from headroom':cat==='classic'?'TF-IDF / TextRank':'Stopwords / SimHash'}
+                  {cat==='baseline'?'None / Truncation':cat==='smart'?'Keyword + Kneedle K':cat==='classic'?'TF-IDF / TextRank':'Stopwords / SimHash'}
                 </span>
               </div>
             ))}
+
           </div>
         </aside>
 
@@ -286,8 +287,8 @@ export default function App() {
                     <select value={method}
                       onChange={e => setColMethods(prev => { const n=[...prev] as typeof prev; n[col]=e.target.value as CompressionMethod; return n })}
                       className="w-full bg-gray-800 border border-gray-700 rounded px-1.5 py-1 text-[10px] text-gray-200 focus:outline-none focus:border-cyan-600">
-                      {(['baseline','headroom','classic','advanced'] as const).map(cat => (
-                        <optgroup key={cat} label={`── ${cat.toUpperCase()} ──`}>
+                      {(['baseline','smart','classic','advanced'] as const).map(cat => (
+                        <optgroup key={cat} label={`── ${cat==='smart'?'SMART COMPRESS':cat.toUpperCase()} ──`}>
                           {METHODS.filter(m => m.category === cat).map(m => (
                             <option key={m.key} value={m.key}>{m.label}</option>
                           ))}

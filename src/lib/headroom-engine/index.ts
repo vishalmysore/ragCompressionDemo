@@ -29,14 +29,14 @@ export interface MethodInfo {
   key: CompressionMethod
   label: string
   desc: string
-  category: 'baseline' | 'headroom' | 'classic' | 'advanced'
+  category: 'baseline' | 'smart' | 'classic' | 'advanced'
   color: string
 }
 
 export const METHODS: MethodInfo[] = [
   { key: 'none',               label: 'No Compression',      desc: 'Full context, no reduction',                          category: 'baseline', color: 'red'    },
-  { key: 'headroom-smart',     label: 'Headroom Smart',       desc: 'Keyword signals + Kneedle K (~40-60% reduction)',     category: 'headroom', color: 'cyan'   },
-  { key: 'headroom-aggressive',label: 'Headroom Aggressive',  desc: 'Same signals, higher ratio (~70-85% reduction)',      category: 'headroom', color: 'blue'   },
+  { key: 'headroom-smart',     label: 'Smart Compress',       desc: 'Keyword signals + Kneedle K (~40-60% reduction)',     category: 'smart',    color: 'cyan'   },
+  { key: 'headroom-aggressive',label: 'Aggressive Compress',  desc: 'Same signals, higher ratio (~70-85% reduction)',      category: 'smart',    color: 'blue'   },
   { key: 'tfidf',              label: 'TF-IDF',               desc: 'Score sentences by query term frequency × IDF',       category: 'classic',  color: 'yellow' },
   { key: 'textrank',           label: 'TextRank',             desc: 'Graph-based importance (PageRank for sentences)',     category: 'classic',  color: 'orange' },
   { key: 'truncation',         label: 'Truncation',           desc: 'Keep first N sentences — dumb baseline',             category: 'baseline', color: 'gray'   },
