@@ -1,16 +1,16 @@
-# Context Is the New RAM: How Headroom Compresses Your Way to Better RAG
+# Context Is the New RAM: How Smart Compression Makes RAG Answers Better
 
 Every call to an LLM has a token budget. Blow it, and you get truncated context, degraded answers, or outright errors. Stay well under it, and you're leaving quality on the table. The sweet spot is fitting the *most informative* content into the available window — and that is exactly the problem context compression solves.
 
-This article walks through the algorithms behind **Headroom**, an open-source context compression library originally written in Rust, and how its core ideas have been ported to TypeScript to run entirely in the browser — no proxy, no server round-trips, no external SDK.
+This article walks through the algorithms behind the **RAG Compression Demo** — a 100% browser-based playground that lets you upload a PDF, load a local LLM via WebGPU, and compare answers across three compression levels side by side, in real time, with no server required.
 
 ---
 
 ## The Core Idea: Information Saturation
 
-The central insight behind Headroom is that a large document has a *knee* — a point beyond which adding more content stops adding new information. The job of a compressor is to find that knee and cut everything past it.
+The central insight is that a large document has a *knee* — a point beyond which adding more content stops adding new information. The job of a compressor is to find that knee and cut everything past it.
 
-Headroom uses the **Kneedle algorithm** to locate this inflection point. The implementation builds a cumulative bigram coverage curve: as you consume sentences (or JSON records) one by one, you track how many unique word-bigrams you've seen. At first, each new item adds many novel bigrams. Eventually, items start repeating familiar vocabulary and the curve flattens. Kneedle finds the point of maximum vertical distance from the diagonal — the "elbow" — and that becomes the budget `k`.
+The engine uses the **Kneedle algorithm** to locate this inflection point. It builds a cumulative bigram coverage curve: as you consume sentences (or JSON records) one by one, you track how many unique word-bigrams you've seen. At first, each new item adds many novel bigrams. Eventually, items start repeating familiar vocabulary and the curve flattens. Kneedle finds the point of maximum vertical distance from the diagonal — the "elbow" — and that becomes the budget `k`.
 
 ```ts
 // adaptive-sizer.ts
@@ -35,7 +35,7 @@ A zlib validation pass follows: if the selected subset compresses significantly 
 
 ## Content-Type Routing
 
-Not all context is the same. A wall of log output calls for different treatment than a PDF page or a Python module. Headroom auto-detects content type and routes to a specialized compressor:
+Not all context is the same. A wall of log output calls for different treatment than a PDF page or a Python module. The engine auto-detects content type and routes to a specialized compressor:
 
 ```ts
 function detectContentType(content: string): 'json' | 'code' | 'logs' | 'text' {
@@ -69,11 +69,9 @@ When items are dropped, a `_headroom` metadata key is injected so the LLM knows 
 ```json
 {
   "data": [...],
-  "_headroom": "342 items offloaded <<ccr:a3f8c901b2d4>>"
+  "_compressed": "342 items offloaded <<ref:a3f8c901b2d4>>"
 }
 ```
-
-The CCR (Compressed Context Reference) hash is a lightweight fingerprint of the dropped content — a future retrieval layer could use it to restore dropped items on demand.
 
 ---
 
@@ -107,7 +105,6 @@ For code files, the goal is to keep the *signature* (the contract) while collaps
 The compressor identifies function and method definitions via a regex approximation of an AST, then stubs their bodies:
 
 ```ts
-// From code-compressor.ts
 if (DEF_RE.test(line)) {
   output.push(line.replace(COMMENT_RE, ''))  // keep the signature
   inBody = true
@@ -132,7 +129,7 @@ The result is a skeleton that conveys the module's API surface without the imple
 
 ## Text and PDF Compression: Keyword Signals
 
-For unstructured text — documentation, PDF extracts, meeting transcripts — the compressor scores each sentence using a tiered keyword registry ported from Headroom's `keyword_detector.rs`:
+For unstructured text — documentation, PDF extracts, meeting transcripts — the compressor scores each sentence using a tiered keyword registry:
 
 | Priority | Keywords |
 |----------|----------|
@@ -143,7 +140,7 @@ For unstructured text — documentation, PDF extracts, meeting transcripts — t
 | 0.45 — Markdown | Lines starting with `#`, `##`, `>`, `**` |
 | 0.00 — Default | No keyword match |
 
-Sentences scoring above the knee threshold are kept; the rest are dropped. One addition beyond Headroom's original design: **query relevance boosting**. At RAG time, you know the user's question. Sentences that overlap with query terms get a score boost proportional to term coverage, so the compressor can prioritise content that is directly relevant to the retrieval context.
+Sentences scoring above the knee threshold are kept; the rest are dropped. One addition specific to RAG: **query relevance boosting**. At retrieval time, you know the user's question. Sentences that overlap with query terms get a score boost proportional to term coverage, so the compressor prioritises content directly relevant to the question being asked.
 
 ---
 
@@ -151,9 +148,9 @@ Sentences scoring above the knee threshold are kept; the rest are dropped. One a
 
 The demo provides four additional methods for comparison, all running client-side:
 
-**TF-IDF** scores each sentence by the sum of (term frequency × inverse document frequency) for query terms. It requires a query to work; without one it falls back to no-op. Classic and surprisingly effective for focused retrieval questions.
+**TF-IDF** scores each sentence by the sum of (term frequency × inverse document frequency) for query terms. Classic and surprisingly effective for focused retrieval questions.
 
-**TextRank** builds a sentence similarity graph (word-overlap normalised by log lengths) and runs PageRank-style iteration for 10 steps with damping factor 0.85. It produces query-independent extractive summaries — useful when you want the document's own central themes, not answers to a specific question.
+**TextRank** builds a sentence similarity graph (word-overlap normalised by log lengths) and runs PageRank-style iteration for 10 steps with damping factor 0.85. Produces query-independent extractive summaries — useful when you want the document's own central themes.
 
 **Stopword Removal** strips function words (`the`, `a`, `is`, `of`, ...) using a regex. Lossless of meaning, delivers 10–20% token reduction with zero risk of dropping important content. Good as a pre-pass before other methods.
 
@@ -168,8 +165,8 @@ The demo provides four additional methods for comparison, all running client-sid
 | SmartCrusher | JSON arrays | 60–85% |
 | LogCompressor | Build/test logs | 70–90% |
 | CodeCompressor | Source code | 40–60% |
-| Headroom Smart | Text / PDF | 40–60% |
-| Headroom Aggressive | Text / PDF | 70–85% |
+| Smart | Text / PDF | 40–60% |
+| Aggressive | Text / PDF | 70–85% |
 | TF-IDF | Text (with query) | configurable |
 | TextRank | Text | configurable |
 | Stopwords | Any | 10–20% |
@@ -179,9 +176,7 @@ The demo provides four additional methods for comparison, all running client-sid
 
 ## Running Entirely in the Browser
 
-The entire engine is TypeScript, compiled to WebAssembly-compatible code and loaded via a Web Worker for DuckDB integration. There is no backend proxy, no Anthropic SDK call at compression time — the compression happens client-side before the context is sent to the LLM.
-
-This has a practical implication: the token count estimates use the `ceil(length / 4)` heuristic rather than a tokenizer, which is accurate to within ~10% for typical English prose and good enough for sizing decisions. For production use with tiktoken or the Anthropic tokenizer, the `rough()` function would be the only thing to swap out.
+The entire engine is TypeScript, running in the browser with no backend. DuckDB WASM handles vector storage in a Web Worker; WebLLM runs inference on your GPU via WebGPU. Compression happens client-side before context is sent to the LLM — no API key, no server round-trips.
 
 ---
 
@@ -193,10 +188,14 @@ This has a practical implication: the token count estimates use the `ceil(length
 
 3. **Error signals are universally high-priority.** Across JSON, logs, code, and text, the pattern holds: lines containing error-adjacent vocabulary carry disproportionate signal density and should almost never be dropped.
 
-4. **Query-awareness is a first-class concern for RAG.** General summarisation (TextRank, TF-IDF without a query) misses the point in a retrieval context. The compressor knows why you fetched the document — use that.
+4. **Query-awareness is a first-class concern for RAG.** General summarisation misses the point in a retrieval context. The compressor knows why you fetched the document — use that.
 
-5. **Client-side compression is viable.** The entire Headroom engine — Kneedle, SimHash, bigram curves, zlib validation — runs in ~50ms for typical documents on modern hardware, well within the latency budget of a streaming LLM response.
+5. **Client-side compression is viable.** The entire engine — Kneedle, SimHash, bigram curves, zlib validation — runs in ~50ms for typical documents on modern hardware, well within the latency budget of a streaming LLM response.
 
 ---
 
-The code for this demo is available in the `headroom-demo` directory. The core algorithms live in `src/lib/headroom-engine/` and are intentionally self-contained — no framework dependencies, no runtime SDK, ready to drop into any TypeScript project.
+The full source is at [github.com/vishalmysore/ragCompressionDemo](https://github.com/vishalmysore/ragCompressionDemo). The core algorithms live in `src/lib/headroom-engine/` and are intentionally self-contained — no framework dependencies, no runtime SDK, ready to drop into any TypeScript project.
+
+---
+
+*The compression algorithms in this project were inspired by [chopratejas/headroom](https://github.com/chopratejas/headroom), an open-source context compression library written in Rust.*
