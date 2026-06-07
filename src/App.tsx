@@ -193,7 +193,13 @@ export default function App() {
           {/* Step 2 */}
           <div>
             <SLabel n="2" color="purple">Load LLM</SLabel>
-            <select value={selectedModel} onChange={e=>{setSelectedModel(e.target.value);setModelStatus('idle')}}
+            <select value={selectedModel} onChange={e=>{
+              setSelectedModel(e.target.value)
+              setModelStatus('idle')
+              setModelProgress('')
+              engineRef.current = null
+              setColAnswers(['','',''])
+            }}
               disabled={modelStatus==='loading'}
               className="w-full mt-1.5 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-[10px] text-gray-200 focus:outline-none focus:border-purple-500 disabled:opacity-50">
               {MODELS.map(m=><option key={m.id} value={m.id}>{m.label} ({m.size})</option>)}
