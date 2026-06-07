@@ -1,9 +1,8 @@
-import { useEffect, useState, useCallback, type ReactNode } from 'react'
+import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
 import { duckdb } from './lib/duckdb-bridge.ts'
 import { parsePdf } from './lib/pdf-parser.ts'
 import { countTokens } from './lib/tokenizer.ts'
 import { compressContent, METHODS, type CompressionMethod } from './lib/headroom-engine/index.ts'
-import { llmBridge, type ProgressEvent } from './lib/llm-bridge.ts'
 
 // Model IDs match advancedRag (proven to work); q4f32_1 for 1B, q4f16_1 for larger
 const MODELS = [
@@ -33,6 +32,7 @@ export default function App() {
   const [selectedModel, setSelectedModel] = useState(MODELS[0].id)
   const [modelStatus, setModelStatus]   = useState<ModelStatus>('idle')
   const [modelProgress, setModelProgress] = useState('')
+  const engineRef = useRef<any>(null)
 
   const [question, setQuestion]   = useState('')
   const [_rawChunks, setRawChunks] = useState<{pageNumber:number;content:string;tokens:number}[]>([])
@@ -71,22 +71,30 @@ export default function App() {
     if (!(navigator as any).gpu) { setModelStatus('no-webgpu'); return }
     setModelStatus('loading')
     setModelProgress('')
-    llmBridge.loadModel(selectedModel, (ev: ProgressEvent) => {
-      if (ev.type === 'ready') {
-        setModelStatus('ready')
-        setModelProgress('')
-      } else if (ev.type === 'error') {
-        const isDeviceLost = ev.deviceLost
-        setModelStatus('idle')
-        setModelProgress(isDeviceLost
-          ? '⚠ GPU device lost — not enough VRAM. Try a smaller model (Qwen2 0.5B ~400 MB).'
-          : `Failed: ${ev.error}`)
-      } else if (ev.type === 'downloading') {
-        setModelProgress(`Downloading… ${ev.progress}%`)
-      } else if (ev.type === 'phase') {
-        setModelProgress(ev.note ?? ev.phase)
-      }
-    }).catch(() => {}) // handled via onProgress
+    // Unload previous engine properly before loading a new one
+    if (engineRef.current) {
+      try { await engineRef.current.unload() } catch (_) {}
+      engineRef.current = null
+    }
+    try {
+      const { CreateMLCEngine } = await import('@mlc-ai/web-llm')
+      engineRef.current = await CreateMLCEngine(selectedModel, {
+        initProgressCallback: (p: any) => {
+          const pct = Math.round((p.progress ?? 0) * 100)
+          setModelProgress(`${pct}% — ${p.text ?? ''}`)
+        },
+      })
+      setModelStatus('ready')
+      setModelProgress('')
+    } catch (err: any) {
+      const msg: string = err?.message ?? String(err)
+      const isDeviceLost = /disposed|device.?lost|device.?hung|DEVICE_HUNG|0x887A/i.test(msg)
+      engineRef.current = null
+      setModelStatus('idle')
+      setModelProgress(isDeviceLost
+        ? '⚠ GPU out of memory — try a smaller model.'
+        : `Failed: ${msg}`)
+    }
   }, [selectedModel])
 
   // ── Build contexts for all 3 columns ─────────────────────────────────────
@@ -126,7 +134,7 @@ export default function App() {
 
   // ── Ask LLM for one column ────────────────────────────────────────────────
   const askLlm = useCallback(async (col: 0|1|2) => {
-    if (llmBridge.getStatus() !== 'ready' || !colContexts[col] || !question.trim()) return
+    if (!engineRef.current || !colContexts[col] || !question.trim()) return
     setColGenerating(g => { const n=[...g] as typeof g; n[col]=true; return n })
     setColAnswers(a => { const n=[...a] as typeof a; n[col]=''; return n })
     try {
@@ -134,17 +142,23 @@ export default function App() {
         {role:'system', content:'Answer based only on the provided context. Be concise.'},
         {role:'user', content:`Context:\n${colContexts[col]}\n\nQuestion: ${question}`},
       ]
-      await llmBridge.generate(msgs, (_delta, full) => {
+      const stream = await engineRef.current.chat.completions.create({messages:msgs, stream:true, max_tokens:512})
+      let full = ''
+      for await (const chunk of stream) {
+        full += chunk.choices[0]?.delta?.content ?? ''
         setColAnswers(a => { const n=[...a] as typeof a; n[col]=full; return n })
-      })
+      }
     } catch(err:any) {
       const msg: string = (err as Error).message ?? String(err)
-      setColAnswers(a => { const n=[...a] as typeof a; n[col]=`Error: ${msg}`; return n })
       const isDeviceLost = /disposed|device.?lost|device.?hung|DEVICE_HUNG|0x887A/i.test(msg)
       if (isDeviceLost) {
+        try { await engineRef.current?.unload() } catch (_) {}
+        engineRef.current = null
         setModelStatus('idle')
-        setColAnswers(['','','']) // clear the raw error — user sees the progress message instead
-        setModelProgress('⚠ GPU ran out of memory. Select a smaller model — Qwen2 0.5B (~400 MB) works on most machines.')
+        setColAnswers(['','',''])
+        setModelProgress('⚠ GPU out of memory — reload a smaller model.')
+      } else {
+        setColAnswers(a => { const n=[...a] as typeof a; n[col]=`Error: ${msg}`; return n })
       }
     } finally {
       setColGenerating(g => { const n=[...g] as typeof g; n[col]=false; return n })
@@ -192,12 +206,15 @@ export default function App() {
           {/* Step 2 */}
           <div>
             <SLabel n="2" color="purple">Load LLM</SLabel>
-            <select value={selectedModel} onChange={e=>{
+            <select value={selectedModel} onChange={async e=>{
               setSelectedModel(e.target.value)
               setModelStatus('idle')
               setModelProgress('')
-              llmBridge.dispose()
               setColAnswers(['','',''])
+              if (engineRef.current) {
+                try { await engineRef.current.unload() } catch (_) {}
+                engineRef.current = null
+              }
             }}
               disabled={modelStatus==='loading'}
               className="w-full mt-1.5 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-[10px] text-gray-200 focus:outline-none focus:border-purple-500 disabled:opacity-50">
@@ -277,7 +294,7 @@ export default function App() {
               const info = METHODS.find(x => x.key === method)!
               const tok = countTokens(colContexts[col] || '')
               const pct = rawTokens > 0 ? Math.round((1 - tok/rawTokens)*100) : 0
-              const canAsk = llmBridge.getStatus()==='ready' && !!colContexts[col] && !!question.trim()
+              const canAsk = modelStatus==='ready' && !!engineRef.current && !!colContexts[col] && !!question.trim()
 
               return (
                 <div key={col} className={`flex-1 flex flex-col overflow-hidden ${col < 2 ? 'border-r border-gray-800' : ''}`}>
