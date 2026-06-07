@@ -1,8 +1,9 @@
-import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
+import { useEffect, useState, useCallback, type ReactNode } from 'react'
 import { duckdb } from './lib/duckdb-bridge.ts'
 import { parsePdf } from './lib/pdf-parser.ts'
 import { countTokens } from './lib/tokenizer.ts'
 import { compressContent, METHODS, type CompressionMethod } from './lib/headroom-engine/index.ts'
+import { llmBridge, type ProgressEvent } from './lib/llm-bridge.ts'
 
 const MODELS = [
   { id: 'Qwen2-0.5B-Instruct-q4f16_1-MLC',   label: 'Qwen2 0.5B',   size: '~400 MB' },
@@ -13,7 +14,7 @@ const MODELS = [
   { id: 'gemma-2-2b-it-q4f16_1-MLC',          label: 'Gemma 2 2B',   size: '~1.5 GB' },
 ]
 
-type ModelStatus = 'idle' | 'loading' | 'ready' | 'no-webgpu'
+type ModelStatus = 'idle' | 'loading' | 'ready' | 'no-webgpu' | 'error'
 
 const CATEGORY_COLORS: Record<string, string> = {
   baseline: 'text-gray-400',
@@ -32,7 +33,6 @@ export default function App() {
   const [selectedModel, setSelectedModel] = useState(MODELS[0].id)
   const [modelStatus, setModelStatus]   = useState<ModelStatus>('idle')
   const [modelProgress, setModelProgress] = useState('')
-  const engineRef = useRef<any>(null)
 
   const [question, setQuestion]   = useState('')
   const [_rawChunks, setRawChunks] = useState<{pageNumber:number;content:string;tokens:number}[]>([])
@@ -69,21 +69,24 @@ export default function App() {
   // ── Model ────────────────────────────────────────────────────────────────
   const loadModel = useCallback(async () => {
     if (!(navigator as any).gpu) { setModelStatus('no-webgpu'); return }
-    setModelStatus('loading'); engineRef.current = null
-    try {
-      const { CreateMLCEngine } = await import('@mlc-ai/web-llm')
-      engineRef.current = await CreateMLCEngine(selectedModel, {
-        initProgressCallback: (p:any) => setModelProgress(`${(p.progress*100).toFixed(0)}% — ${p.text??''}`)
-      })
-      setModelStatus('ready'); setModelProgress('')
-    } catch(err:any) {
-      const msg: string = (err as Error).message ?? String(err)
-      const isDeviceLost = /disposed|device.?lost|device.?hung|DEVICE_HUNG|0x887A/i.test(msg)
-      setModelStatus('idle')
-      setModelProgress(isDeviceLost
-        ? '⚠ GPU device lost — not enough VRAM. Try a smaller model (Qwen2 0.5B uses ~400 MB).'
-        : `Failed: ${msg}`)
-    }
+    setModelStatus('loading')
+    setModelProgress('')
+    llmBridge.loadModel(selectedModel, (ev: ProgressEvent) => {
+      if (ev.type === 'ready') {
+        setModelStatus('ready')
+        setModelProgress('')
+      } else if (ev.type === 'error') {
+        const isDeviceLost = ev.deviceLost
+        setModelStatus('idle')
+        setModelProgress(isDeviceLost
+          ? '⚠ GPU device lost — not enough VRAM. Try a smaller model (Qwen2 0.5B ~400 MB).'
+          : `Failed: ${ev.error}`)
+      } else if (ev.type === 'downloading') {
+        setModelProgress(`Downloading… ${ev.progress}%`)
+      } else if (ev.type === 'phase') {
+        setModelProgress(ev.note ?? ev.phase)
+      }
+    }).catch(() => {}) // handled via onProgress
   }, [selectedModel])
 
   // ── Build contexts for all 3 columns ─────────────────────────────────────
@@ -123,7 +126,7 @@ export default function App() {
 
   // ── Ask LLM for one column ────────────────────────────────────────────────
   const askLlm = useCallback(async (col: 0|1|2) => {
-    if (!engineRef.current || !colContexts[col] || !question.trim()) return
+    if (llmBridge.getStatus() !== 'ready' || !colContexts[col] || !question.trim()) return
     setColGenerating(g => { const n=[...g] as typeof g; n[col]=true; return n })
     setColAnswers(a => { const n=[...a] as typeof a; n[col]=''; return n })
     try {
@@ -131,21 +134,16 @@ export default function App() {
         {role:'system', content:'Answer based only on the provided context. Be concise.'},
         {role:'user', content:`Context:\n${colContexts[col]}\n\nQuestion: ${question}`},
       ]
-      const stream = await engineRef.current.chat.completions.create({messages:msgs, stream:true, max_tokens:512})
-      let full = ''
-      for await (const chunk of stream) {
-        full += chunk.choices[0]?.delta?.content ?? ''
+      await llmBridge.generate(msgs, (_delta, full) => {
         setColAnswers(a => { const n=[...a] as typeof a; n[col]=full; return n })
-      }
+      })
     } catch(err:any) {
       const msg: string = (err as Error).message ?? String(err)
       setColAnswers(a => { const n=[...a] as typeof a; n[col]=`Error: ${msg}`; return n })
-      // GPU device lost / engine disposed — reset so the user can reload a (smaller) model
       const isDeviceLost = /disposed|device.?lost|device.?hung|DEVICE_HUNG|0x887A/i.test(msg)
       if (isDeviceLost) {
-        engineRef.current = null
         setModelStatus('idle')
-        setModelProgress('⚠ GPU device lost — reload the model. Try a smaller one (Qwen2 0.5B uses ~400 MB).')
+        setModelProgress('⚠ GPU device lost — reload the model. Try a smaller one (Qwen2 0.5B ~400 MB).')
       }
     } finally {
       setColGenerating(g => { const n=[...g] as typeof g; n[col]=false; return n })
@@ -197,7 +195,7 @@ export default function App() {
               setSelectedModel(e.target.value)
               setModelStatus('idle')
               setModelProgress('')
-              engineRef.current = null
+              llmBridge.dispose()
               setColAnswers(['','',''])
             }}
               disabled={modelStatus==='loading'}
@@ -272,7 +270,7 @@ export default function App() {
               const info = METHODS.find(x => x.key === method)!
               const tok = countTokens(colContexts[col] || '')
               const pct = rawTokens > 0 ? Math.round((1 - tok/rawTokens)*100) : 0
-              const canAsk = modelStatus==='ready' && !!colContexts[col] && !!question.trim()
+              const canAsk = llmBridge.getStatus()==='ready' && !!colContexts[col] && !!question.trim()
 
               return (
                 <div key={col} className={`flex-1 flex flex-col overflow-hidden ${col < 2 ? 'border-r border-gray-800' : ''}`}>
