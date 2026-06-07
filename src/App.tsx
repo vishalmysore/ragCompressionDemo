@@ -5,13 +5,13 @@ import { countTokens } from './lib/tokenizer.ts'
 import { compressContent, METHODS, type CompressionMethod } from './lib/headroom-engine/index.ts'
 import { llmBridge, type ProgressEvent } from './lib/llm-bridge.ts'
 
+// Model IDs match advancedRag (proven to work); q4f32_1 for 1B, q4f16_1 for larger
 const MODELS = [
-  { id: 'Qwen2-0.5B-Instruct-q4f16_1-MLC',   label: 'Qwen2 0.5B ✓ recommended', size: '~400 MB', safe: true  },
-  { id: 'Qwen2-1.5B-Instruct-q4f16_1-MLC',   label: 'Qwen2 1.5B',                size: '~900 MB', safe: true  },
-  { id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 1B',              size: '~700 MB', safe: true  },
-  { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', label: '⚠ Llama 3.2 3B',           size: '~2 GB',   safe: false },
-  { id: 'Phi-3.5-mini-instruct-q4f16_1-MLC',  label: '⚠ Phi-3.5 Mini',           size: '~2.2 GB', safe: false },
-  { id: 'gemma-2-2b-it-q4f16_1-MLC',          label: '⚠ Gemma 2 2B',             size: '~1.5 GB', safe: false },
+  { id: 'Llama-3.2-1B-Instruct-q4f32_1-MLC',  label: 'Llama 3.2 1B ✓ recommended', size: '~0.9 GB', safe: true  },
+  { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',  label: 'Qwen 2.5 1.5B',              size: '~1.1 GB', safe: true  },
+  { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC',  label: '⚠ Llama 3.2 3B',            size: '~2 GB',   safe: false },
+  { id: 'gemma-2-2b-it-q4f16_1-MLC',           label: '⚠ Gemma 2 2B',              size: '~1.5 GB', safe: false },
+  { id: 'Phi-3.5-mini-instruct-q4f16_1-MLC',   label: '⚠ Phi-3.5 Mini',            size: '~2.2 GB', safe: false },
 ]
 
 type ModelStatus = 'idle' | 'loading' | 'ready' | 'no-webgpu' | 'error'
