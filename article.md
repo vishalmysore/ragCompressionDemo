@@ -202,4 +202,22 @@ The full source is at [github.com/vishalmysore/ragCompressionDemo](https://githu
 
 ---
 
-*The compression algorithms in this project were inspired by [chopratejas/headroom](https://github.com/chopratejas/headroom), an open-source context compression library written in Rust.*
+---
+
+## Credit
+
+A significant part of the compression engine in this project would not exist without [chopratejas/headroom](https://github.com/chopratejas/headroom) — an open-source context compression library written in Rust by Tejas Chopra.
+
+The following modules are TypeScript ports of headroom's Rust source code:
+
+| File | Ported from |
+|---|---|
+| `adaptive-sizer.ts` | `transforms/adaptive_sizer.rs` — SimHash, Kneedle knee-detection, zlib-ratio validation |
+| `smart-crusher.ts` | `transforms/smart_crusher/` — JSON array classification, k-split, dict/string/number crushers |
+| `log-compressor.ts` | `transforms/log_compressor.rs` — log format detection, level scoring, stack-trace state machine |
+| `text-compressor.ts` | `signals/keyword_detector.rs` — keyword priority tiers, line importance scoring |
+| `code-compressor.ts` | CodeCompressor concept — signature preservation, function-body stubbing |
+
+The ideas of information saturation, adaptive K sizing, error-keyword anchoring, and content-type routing all come from headroom's design. This demo ports those algorithms to TypeScript so they run entirely in the browser — but the intellectual foundation is headroom's.
+
+headroom is licensed under Apache 2.0. Full attribution is in the [NOTICE](./NOTICE) file and in the header of each ported source file.
