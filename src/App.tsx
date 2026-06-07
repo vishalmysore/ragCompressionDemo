@@ -6,12 +6,12 @@ import { compressContent, METHODS, type CompressionMethod } from './lib/headroom
 import { llmBridge, type ProgressEvent } from './lib/llm-bridge.ts'
 
 const MODELS = [
-  { id: 'Qwen2-0.5B-Instruct-q4f16_1-MLC',   label: 'Qwen2 0.5B',   size: '~400 MB' },
-  { id: 'Qwen2-1.5B-Instruct-q4f16_1-MLC',   label: 'Qwen2 1.5B',   size: '~900 MB' },
-  { id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 1B', size: '~700 MB' },
-  { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 3B', size: '~2 GB'   },
-  { id: 'Phi-3.5-mini-instruct-q4f16_1-MLC',  label: 'Phi-3.5 Mini', size: '~2.2 GB' },
-  { id: 'gemma-2-2b-it-q4f16_1-MLC',          label: 'Gemma 2 2B',   size: '~1.5 GB' },
+  { id: 'Qwen2-0.5B-Instruct-q4f16_1-MLC',   label: 'Qwen2 0.5B',   size: '~400 MB', safe: true  },
+  { id: 'Qwen2-1.5B-Instruct-q4f16_1-MLC',   label: 'Qwen2 1.5B',   size: '~900 MB', safe: true  },
+  { id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 1B', size: '~700 MB', safe: true  },
+  { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 3B', size: '~2 GB',   safe: false },
+  { id: 'Phi-3.5-mini-instruct-q4f16_1-MLC',  label: 'Phi-3.5 Mini', size: '~2.2 GB', safe: false },
+  { id: 'gemma-2-2b-it-q4f16_1-MLC',          label: 'Gemma 2 2B',   size: '~1.5 GB', safe: false },
 ]
 
 type ModelStatus = 'idle' | 'loading' | 'ready' | 'no-webgpu' | 'error'
@@ -143,7 +143,8 @@ export default function App() {
       const isDeviceLost = /disposed|device.?lost|device.?hung|DEVICE_HUNG|0x887A/i.test(msg)
       if (isDeviceLost) {
         setModelStatus('idle')
-        setModelProgress('⚠ GPU device lost — reload the model. Try a smaller one (Qwen2 0.5B ~400 MB).')
+        setColAnswers(['','','']) // clear the raw error — user sees the progress message instead
+        setModelProgress('⚠ GPU ran out of memory. Select a smaller model — Qwen2 0.5B (~400 MB) works on most machines.')
       }
     } finally {
       setColGenerating(g => { const n=[...g] as typeof g; n[col]=false; return n })
@@ -200,8 +201,13 @@ export default function App() {
             }}
               disabled={modelStatus==='loading'}
               className="w-full mt-1.5 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-[10px] text-gray-200 focus:outline-none focus:border-purple-500 disabled:opacity-50">
-              {MODELS.map(m=><option key={m.id} value={m.id}>{m.label} ({m.size})</option>)}
+              {MODELS.map(m=><option key={m.id} value={m.id}>{m.safe ? '' : '⚠ '}{m.label} ({m.size})</option>)}
             </select>
+            {!MODELS.find(m=>m.id===selectedModel)?.safe && (
+              <div className="mt-1 text-[9px] text-amber-400 bg-amber-950/30 border border-amber-800/40 rounded p-1.5">
+                ⚠ {MODELS.find(m=>m.id===selectedModel)?.size} — needs dedicated GPU with enough VRAM. If it crashes, switch to Qwen2 0.5B (~400 MB).
+              </div>
+            )}
             {modelStatus==='no-webgpu' && <div className="text-[9px] text-amber-400 mt-1">WebGPU unavailable — Chrome 113+</div>}
             {modelStatus!=='ready'
               ? <button onClick={loadModel} disabled={modelStatus==='loading'}
