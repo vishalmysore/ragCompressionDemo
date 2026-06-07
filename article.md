@@ -2,7 +2,11 @@
 
 Every call to an LLM has a token budget. Blow it, and you get truncated context, degraded answers, or outright errors. Stay well under it, and you're leaving quality on the table. The sweet spot is fitting the *most informative* content into the available window — and that is exactly the problem context compression solves.
 
-This article walks through the algorithms behind the **RAG Compression Demo** — a 100% browser-based playground that lets you upload a PDF, load a local LLM via WebGPU, and compare answers across three compression levels side by side, in real time, with no server required.
+While building this demo I looked at a wide range of compression approaches — from classical NLP techniques like TF-IDF and TextRank, to structural methods like log triage and code skeleton extraction, to information-theoretic approaches using SimHash and zlib-ratio validation. Each has a different strength depending on the content type and retrieval goal.
+
+The purpose of this article is not just to describe those algorithms in theory — it is to let you **see them working live, right now, with no setup**. Open the demo in Chrome, upload a PDF, pick a local LLM, and watch three compression levels answer your question side by side. No API key. No server. No install.
+
+[**→ Try the live demo**](https://github.com/vishalmysore/ragCompressionDemo)
 
 ---
 
