@@ -1,5 +1,7 @@
 # RAG Compression Demo
 
+> **Source:** [github.com/vishalmysore/ragCompressionDemo](https://github.com/vishalmysore/ragCompressionDemo)
+
 A 100% browser-based playground for exploring how context compression affects
 RAG (Retrieval-Augmented Generation) quality and token cost.
 
@@ -24,33 +26,19 @@ by side, in real time, with no server required.
 
 ## Compression Algorithms
 
-### Faithfully ported from [headroom](https://github.com/chopratejas/headroom) (Apache-2.0)
-
-The following algorithms are direct TypeScript ports of Rust source code in
-`crates/headroom-core/`. The original license and attribution headers are
-preserved in each file as required by Apache 2.0.
+The core compression engine (`src/lib/headroom-engine/`) is a TypeScript port of algorithms
+from [headroom](https://github.com/chopratejas/headroom) (Apache-2.0) by Tejas Chopra,
+adapted for browser environments (WebGPU, WASM, no server required).
 
 | File | Ported from | What it does |
 |---|---|---|
-| `src/lib/headroom-engine/adaptive-sizer.ts` | `transforms/adaptive_sizer.rs` | SimHash (4-gram MD5 bit-voting), Kneedle knee-detection, zlib-ratio validation, `compute_optimal_k` |
-| `src/lib/headroom-engine/smart-crusher.ts` | `transforms/smart_crusher/` | JSON array type classification, k-split (first/last/importance), dict/string/number array crushers |
-| `src/lib/headroom-engine/log-compressor.ts` | `transforms/log_compressor.rs` | Log format detection (pytest/npm/cargo/jest/make), level scoring (ERROR=1.0 → DEBUG=0.0), stack-trace state machine |
-| `src/lib/headroom-engine/text-compressor.ts` | `signals/keyword_detector.rs` | Keyword priority tiers (error=0.95, security=0.85, warning=0.75, importance=0.60, markdown=0.45) and the `token` exclusion bug fix |
+| `adaptive-sizer.ts` | `transforms/adaptive_sizer.rs` | SimHash, Kneedle knee-detection, zlib-ratio validation, adaptive K sizing |
+| `smart-crusher.ts` | `transforms/smart_crusher/` | JSON array type classification, k-split (first/last/importance), dict/string/number crushers |
+| `log-compressor.ts` | `transforms/log_compressor.rs` | Log format detection (pytest/npm/cargo/jest/make), level scoring (ERROR → DEBUG), stack-trace state machine |
+| `text-compressor.ts` | `signals/keyword_detector.rs` | Sentence-level PDF prose compression with keyword signals and a RAG-specific query-relevance layer |
+| `code-compressor.ts` | CodeCompressor concept | Signature/import preservation and function-body stubbing (regex-based, no tree-sitter) |
 
-These files include their original Apache 2.0 attribution headers. Per
-Apache 2.0 §4(a)/(b), the headers and this notice must be retained in any
-distribution.
-
-### Written independently (inspired by headroom's design)
-
-| File | What it does |
-|---|---|
-| `src/lib/headroom-engine/text-compressor.ts` | Sentence-level PDF prose compression using headroom's keyword signals + Kneedle K, with an additional query-relevance layer specific to RAG |
-| `src/lib/headroom-engine/code-compressor.ts` | Signature/import preservation and function-body stubbing via regex (headroom uses a full AST parser; this is an approximation) |
-
-The sentence-splitting, query-relevance scoring, and `[Page N]` boundary
-preservation in `text-compressor.ts` are original work. The keyword priority
-values and `compute_optimal_k` call are from headroom.
+Attribution headers are preserved in each source file as required by Apache 2.0 §4.
 
 ---
 
@@ -70,7 +58,8 @@ values and `compute_optimal_k` call are from headroom.
 ## Running locally
 
 ```bash
-cd headroom-demo
+git clone https://github.com/vishalmysore/ragCompressionDemo.git
+cd ragCompressionDemo
 npm install
 npm run dev
 ```
@@ -81,10 +70,11 @@ Requires Chrome 113+ or Edge 113+ for WebGPU support.
 
 ## License
 
-This project is licensed under the **Apache License, Version 2.0**.
+Copyright 2026 Vishal Mysore (https://github.com/vishalmysore)
+
+Licensed under the **Apache License, Version 2.0**.
 See [LICENSE](./LICENSE) and [NOTICE](./NOTICE) for full details.
 
-This project includes algorithms ported from
-[chopratejas/headroom](https://github.com/chopratejas/headroom) (Apache-2.0).
-Attribution is preserved in the relevant source file headers and in NOTICE
-as required by Apache 2.0 §4(c) and §4(d).
+The compression engine (`src/lib/headroom-engine/`) contains TypeScript ports of
+[chopratejas/headroom](https://github.com/chopratejas/headroom) (Apache-2.0, Copyright 2025 Headroom Contributors).
+Attribution is preserved in source file headers and in [NOTICE](./NOTICE) as required by Apache 2.0 §4.
