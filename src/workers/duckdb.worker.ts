@@ -10,7 +10,7 @@ async function init() {
     new Blob([`importScripts("${bundle.mainWorker!}");`], { type: 'text/javascript' })
   )
   const worker = new Worker(worker_url)
-  const logger = new duckdb.ConsoleLogger()
+  const logger = new duckdb.VoidLogger()
   db = new duckdb.AsyncDuckDB(logger, worker)
   await db.instantiate(bundle.mainModule, bundle.pthreadWorker)
   conn = await db.connect()
