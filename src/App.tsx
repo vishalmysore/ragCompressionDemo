@@ -76,7 +76,14 @@ export default function App() {
         initProgressCallback: (p:any) => setModelProgress(`${(p.progress*100).toFixed(0)}% — ${p.text??''}`)
       })
       setModelStatus('ready'); setModelProgress('')
-    } catch(err:any) { setModelStatus('idle'); setModelProgress(`Failed: ${err.message}`) }
+    } catch(err:any) {
+      const msg: string = (err as Error).message ?? String(err)
+      const isDeviceLost = /disposed|device.?lost|device.?hung|DEVICE_HUNG|0x887A/i.test(msg)
+      setModelStatus('idle')
+      setModelProgress(isDeviceLost
+        ? '⚠ GPU device lost — not enough VRAM. Try a smaller model (Qwen2 0.5B uses ~400 MB).'
+        : `Failed: ${msg}`)
+    }
   }, [selectedModel])
 
   // ── Build contexts for all 3 columns ─────────────────────────────────────
@@ -131,7 +138,15 @@ export default function App() {
         setColAnswers(a => { const n=[...a] as typeof a; n[col]=full; return n })
       }
     } catch(err:any) {
-      setColAnswers(a => { const n=[...a] as typeof a; n[col]=`Error: ${(err as Error).message}`; return n })
+      const msg: string = (err as Error).message ?? String(err)
+      setColAnswers(a => { const n=[...a] as typeof a; n[col]=`Error: ${msg}`; return n })
+      // GPU device lost / engine disposed — reset so the user can reload a (smaller) model
+      const isDeviceLost = /disposed|device.?lost|device.?hung|DEVICE_HUNG|0x887A/i.test(msg)
+      if (isDeviceLost) {
+        engineRef.current = null
+        setModelStatus('idle')
+        setModelProgress('⚠ GPU device lost — reload the model. Try a smaller one (Qwen2 0.5B uses ~400 MB).')
+      }
     } finally {
       setColGenerating(g => { const n=[...g] as typeof g; n[col]=false; return n })
     }
