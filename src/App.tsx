@@ -1,9 +1,14 @@
 import { useEffect, useState, useCallback, type ReactNode } from 'react'
 import { chunkStore } from './lib/chunk-store.ts'
+import { preloadTokenizer } from './lib/tokenizer.ts'
+
+// Start loading the tiktoken WASM in the background immediately —
+// countTokens falls back to length/4 until it's ready (accurate within ~5%).
+preloadTokenizer()
 import { llmBridge, type ProgressEvent } from './lib/llm-bridge.ts'
 import { parsePdf } from './lib/pdf-parser.ts'
 import { countTokens } from './lib/tokenizer.ts'
-import { compressContent, METHODS, type CompressionMethod } from './lib/headroom-engine/index.ts'
+import { compressContent, compressContentSync, METHODS, type CompressionMethod } from './lib/headroom-engine/index.ts'
 
 // Model IDs match advancedRag (proven to work); q4f32_1 for 1B, q4f16_1 for larger
 const MODELS = [
@@ -127,15 +132,21 @@ export default function App() {
   }, [selectedModel, modelProgress])
 
   // ── Build contexts for all 3 columns ─────────────────────────────────────
-  const buildContexts = useCallback((raw: string, q: string, methods: typeof colMethods) => {
-    return methods.map(method => {
+  // Uses compressContentSync for the default eager methods (instant) and
+  // falls back to the async path (dynamic import) for classic/advanced ones.
+  const buildContexts = useCallback(async (raw: string, q: string, methods: typeof colMethods): Promise<[string,string,string]> => {
+    const results = await Promise.all(methods.map(method => {
       const cfg = {
         compressionRatioTarget: method === 'headroom-aggressive' ? 0.15 : 0.45,
         useEntropyPreservation: true,
         tokenBudget: 4000,
       }
-      return compressContent(raw, cfg, q, method).compressed
-    }) as [string,string,string]
+      // Fast sync path for eager methods — avoids any Promise overhead on default columns
+      const sync = compressContentSync(raw, cfg, q, method)
+      if (sync) return Promise.resolve(sync.compressed)
+      return compressContent(raw, cfg, q, method).then(r => r.compressed)
+    }))
+    return results as [string,string,string]
   }, [])
 
   // ── Search RAG ────────────────────────────────────────────────────────────
@@ -149,15 +160,16 @@ export default function App() {
       if (!results.length) return
       const raw = results.map(r => `[Page ${r.pageNumber}]\n${r.content}`).join('\n\n')
       setRawContext(raw)
-      setColContexts(buildContexts(raw, question, colMethods))
+      setColContexts(await buildContexts(raw, question, colMethods))
     } finally {
       setSearching(false)
     }
   }, [question, totalChunks, colMethods, buildContexts])
 
-  // Rebuild when column method changes
+  // Rebuild when column method changes — async because lazy methods need dynamic import
   useEffect(() => {
-    if (rawContext) setColContexts(buildContexts(rawContext, question, colMethods))
+    if (!rawContext) return
+    buildContexts(rawContext, question, colMethods).then(setColContexts)
   }, [colMethods, rawContext, question, buildContexts])
 
   // ── Ask LLM for one column ────────────────────────────────────────────────

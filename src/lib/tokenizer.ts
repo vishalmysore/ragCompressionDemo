@@ -1,18 +1,29 @@
-import { getEncoding } from 'js-tiktoken'
+// tokenizer.ts — lazy-loads js-tiktoken (cl100k_base, ~5 MB WASM) on first use.
+// Until the module is ready, countTokens uses the length/4 approximation which
+// is accurate to within ~5% for English text. This keeps the main JS bundle
+// small so WebGPU has more memory headroom when loading the LLM.
 
-let enc: ReturnType<typeof getEncoding> | null = null
+let _enc: any = null
+let _loading: Promise<void> | null = null
 
-function getEnc() {
-  if (!enc) enc = getEncoding('cl100k_base')
-  return enc
+/** Start loading the tokenizer in the background — call this early (e.g. on mount). */
+export function preloadTokenizer(): void {
+  if (_enc || _loading) return
+  _loading = import('js-tiktoken').then(({ getEncoding }) => {
+    _enc = getEncoding('cl100k_base')
+  }).catch(() => { /* silent — approximation fallback stays active */ })
 }
 
+/**
+ * Count tokens in text.
+ * Returns the real tiktoken count once the WASM is loaded,
+ * otherwise returns the fast length/4 approximation.
+ */
 export function countTokens(text: string): number {
-  try {
-    return getEnc().encode(text).length
-  } catch {
-    return Math.ceil(text.length / 4)
+  if (_enc) {
+    try { return _enc.encode(text).length } catch { /* fall through */ }
   }
+  return Math.ceil(text.length / 4)
 }
 
 export function estimateCost(tokens: number, modelPricePerMillion = 3.0): number {

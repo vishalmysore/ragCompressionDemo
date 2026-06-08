@@ -23,6 +23,6 @@ export interface CompressOutput extends SimResult {
 
 export async function runCompress(payload: CompressPayload): Promise<CompressOutput> {
   const t0 = performance.now()
-  const result = compressContent(payload.content, payload.config, payload.query ?? '')
+  const result = await compressContent(payload.content, payload.config, payload.query ?? '')
   return { ...result, mode: 'local', ttfMs: performance.now() - t0 }
 }
