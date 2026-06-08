@@ -39,9 +39,17 @@ self.onmessage = async (e: MessageEvent) => {
 
     try {
       const nav = self.navigator as any
-      const adapter = await nav.gpu?.requestAdapter()
+      if (!nav.gpu) {
+        post({ status: 'error', error: 'WebGPU not supported. Use Chrome 113+ on a machine with a GPU.' })
+        return
+      }
+      const adapter = await nav.gpu.requestAdapter()
       if (!adapter) {
-        post({ status: 'error', error: 'WebGPU not available. Use Chrome 113+ with a GPU.' })
+        post({
+          status: 'error',
+          error: 'WebGPU adapter lost — Chrome\'s GPU process crashed. Close all Chrome windows and reopen, then try again.',
+          deviceLost: true,
+        })
         return
       }
       post({ status: 'device_detected', device: 'webgpu' })

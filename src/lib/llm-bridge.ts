@@ -62,11 +62,18 @@ function handleMessage(e: MessageEvent) {
       _genResolve?.(msg.full); _genResolve = _genReject = null
       break
     case 'error': {
-      const err = new Error(msg.error)
-      _onProgress?.({ type: 'error', error: msg.error, deviceLost: msg.deviceLost })
+      const raw: string = msg.error ?? ''
+      // "No available adapters" means Chrome's GPU process died (prior crash/hang).
+      // Surface a clear restart hint rather than the raw WebGPU internal message.
+      const noAdapter = /no available adapter|requestadapter/i.test(raw)
+      const friendly  = noAdapter
+        ? 'WebGPU adapter lost — Chrome\'s GPU process crashed. Close all Chrome windows and reopen, then try again.'
+        : raw
+      const err = new Error(friendly)
+      _onProgress?.({ type: 'error', error: friendly, deviceLost: msg.deviceLost || noAdapter })
       if (_loadReject) { _status = 'error'; _loadReject(err); _loadResolve = _loadReject = null }
       if (_genReject)  { _genReject(err);   _genResolve  = _genReject  = null }
-      if (msg.deviceLost) { _status = 'idle'; _modelId = null }
+      if (msg.deviceLost || noAdapter) { _status = 'idle'; _modelId = null }
       break
     }
     case 'cancelled':
