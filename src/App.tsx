@@ -1,12 +1,14 @@
-import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
-import { duckdb } from './lib/duckdb-bridge.ts'
+import { useEffect, useState, useCallback, type ReactNode } from 'react'
+import { chunkStore } from './lib/chunk-store.ts'
+import { llmBridge, type ProgressEvent } from './lib/llm-bridge.ts'
 import { parsePdf } from './lib/pdf-parser.ts'
 import { countTokens } from './lib/tokenizer.ts'
 import { compressContent, METHODS, type CompressionMethod } from './lib/headroom-engine/index.ts'
 
 // Model IDs match advancedRag (proven to work); q4f32_1 for 1B, q4f16_1 for larger
 const MODELS = [
-  { id: 'Llama-3.2-1B-Instruct-q4f32_1-MLC',  label: 'Llama 3.2 1B ✓ recommended', size: '~0.9 GB', safe: true  },
+  { id: 'Qwen2-0.5B-Instruct-q4f16_1-MLC',     label: 'Qwen2 0.5B ✓ recommended',   size: '~400 MB', safe: true  },
+  { id: 'Llama-3.2-1B-Instruct-q4f32_1-MLC',  label: 'Llama 3.2 1B',               size: '~0.9 GB', safe: true  },
   { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',  label: 'Qwen 2.5 1.5B',              size: '~1.1 GB', safe: true  },
   { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC',  label: '⚠ Llama 3.2 3B',            size: '~2 GB',   safe: false },
   { id: 'gemma-2-2b-it-q4f16_1-MLC',           label: '⚠ Gemma 2 2B',              size: '~1.5 GB', safe: false },
@@ -26,76 +28,103 @@ const DEFAULT_COLUMNS: [CompressionMethod, CompressionMethod, CompressionMethod]
   ['none', 'headroom-smart', 'tfidf']
 
 export default function App() {
-  const [dbReady, setDbReady]           = useState(false)
-  const [pdfStatus, setPdfStatus]       = useState<{msg:string;type:'idle'|'ok'|'err'|'info'}>({msg:'',type:'idle'})
-  const [totalChunks, setTotalChunks]   = useState(0)
+  const [pdfStatus, setPdfStatus]         = useState<{msg:string;type:'idle'|'ok'|'err'|'info'}>({msg:'',type:'idle'})
+  const [totalChunks, setTotalChunks]     = useState(0)
   const [selectedModel, setSelectedModel] = useState(MODELS[0].id)
-  const [modelStatus, setModelStatus]   = useState<ModelStatus>('idle')
+  const [modelStatus, setModelStatus]     = useState<ModelStatus>('idle')
   const [modelProgress, setModelProgress] = useState('')
-  const engineRef = useRef<any>(null)
 
-  const [question, setQuestion]   = useState('')
-  const [_rawChunks, setRawChunks] = useState<{pageNumber:number;content:string;tokens:number}[]>([])
-  const [rawContext, setRawContext] = useState('')
-  const [searching, setSearching] = useState(false)
+  const [question, setQuestion]     = useState('')
+  const [rawContext, setRawContext]  = useState('')
+  const [searching, setSearching]   = useState(false)
 
   // 3 independently configurable columns
-  const [colMethods, setColMethods] = useState<[CompressionMethod,CompressionMethod,CompressionMethod]>(DEFAULT_COLUMNS)
-  const [colContexts, setColContexts] = useState<[string,string,string]>(['','',''])
-  const [colAnswers, setColAnswers]   = useState<[string,string,string]>(['','',''])
+  const [colMethods, setColMethods]       = useState<[CompressionMethod,CompressionMethod,CompressionMethod]>(DEFAULT_COLUMNS)
+  const [colContexts, setColContexts]     = useState<[string,string,string]>(['','',''])
+  const [colAnswers, setColAnswers]       = useState<[string,string,string]>(['','',''])
   const [colGenerating, setColGenerating] = useState<[boolean,boolean,boolean]>([false,false,false])
 
-  useEffect(() => { duckdb.init().then(() => setDbReady(true)).catch(console.error) }, [])
+  // Sync modelStatus with llmBridge on mount (in case of hot-reload)
+  useEffect(() => {
+    const s = llmBridge.getStatus()
+    if (s === 'ready') setModelStatus('ready')
+  }, [])
 
   // ── PDF ─────────────────────────────────────────────────────────────────
   const onPdfFile = useCallback(async (file: File) => {
     setPdfStatus({msg:`Reading ${file.name}…`,type:'info'})
-    setTotalChunks(0); setRawChunks([]); setRawContext('')
-    setColContexts(['','','']); setColAnswers(['','',''])
+    setTotalChunks(0)
+    setRawContext('')
+    setColContexts(['','',''])
+    setColAnswers(['','',''])
     try {
       const buf = await file.arrayBuffer()
       const { chunks, numPages, totalChars } = await parsePdf(buf)
-      if (!chunks.length) { setPdfStatus({msg:`No text found in "${file.name}" — may be a scanned PDF.`,type:'err'}); return }
-      await duckdb.query('DELETE FROM pdf_context')
-      await duckdb.insertPdfChunks(chunks.map((c,i) => ({
-        chunkId:`p${c.pageNumber}_c${i}`, pageNumber:c.pageNumber,
-        chunkIndex:i, content:c.content, tokenCount:countTokens(c.content),
+      if (!chunks.length) {
+        setPdfStatus({msg:`No text found in "${file.name}" — may be a scanned PDF.`,type:'err'})
+        return
+      }
+      chunkStore.reset()
+      chunkStore.insert(chunks.map((c, i) => ({
+        chunkId:    `p${c.pageNumber}_c${i}`,
+        pageNumber: c.pageNumber,
+        chunkIndex: i,
+        content:    c.content,
+        tokenCount: countTokens(c.content),
       })))
-      setTotalChunks(chunks.length)
-      setPdfStatus({msg:`✓ "${file.name}" — ${chunks.length} chunks · ${numPages} pages${totalChars<200?' (sparse)':''}`,type:'ok'})
-    } catch(err:any) { setPdfStatus({msg:`Error: ${err.message}`,type:'err'}) }
+      setTotalChunks(chunkStore.count())
+      setPdfStatus({msg:`✓ "${file.name}" — ${chunkStore.count()} chunks · ${numPages} pages${totalChars < 200 ? ' (sparse)' : ''}`,type:'ok'})
+    } catch (err: any) {
+      setPdfStatus({msg:`Error: ${err.message}`,type:'err'})
+    }
   }, [])
 
   // ── Model ────────────────────────────────────────────────────────────────
   const loadModel = useCallback(async () => {
     if (!(navigator as any).gpu) { setModelStatus('no-webgpu'); return }
+
+    // Dispose previous model so the GPU worker starts clean
+    llmBridge.dispose()
     setModelStatus('loading')
     setModelProgress('')
-    // Unload previous engine properly before loading a new one
-    if (engineRef.current) {
-      try { await engineRef.current.unload() } catch (_) {}
-      engineRef.current = null
-    }
+
     try {
-      const { CreateMLCEngine } = await import('@mlc-ai/web-llm')
-      engineRef.current = await CreateMLCEngine(selectedModel, {
-        initProgressCallback: (p: any) => {
-          const pct = Math.round((p.progress ?? 0) * 100)
-          setModelProgress(`${pct}% — ${p.text ?? ''}`)
-        },
+      await llmBridge.loadModel(selectedModel, (evt: ProgressEvent) => {
+        switch (evt.type) {
+          case 'device':
+            setModelProgress('WebGPU adapter detected…')
+            break
+          case 'phase':
+            setModelProgress(evt.note ?? (evt.phase === 'compile' ? 'Compiling shaders…' : 'Downloading…'))
+            break
+          case 'downloading':
+            setModelProgress(`${evt.progress}% — ${evt.file}`)
+            break
+          case 'ready':
+            setModelProgress('')
+            break
+          case 'error':
+            setModelProgress(
+              evt.deviceLost
+                ? '⚠ GPU out of memory — try a smaller model.'
+                : `Failed: ${evt.error}`
+            )
+            break
+        }
       })
       setModelStatus('ready')
       setModelProgress('')
     } catch (err: any) {
       const msg: string = err?.message ?? String(err)
       const isDeviceLost = /disposed|device.?lost|device.?hung|DEVICE_HUNG|0x887A/i.test(msg)
-      engineRef.current = null
       setModelStatus('idle')
-      setModelProgress(isDeviceLost
-        ? '⚠ GPU out of memory — try a smaller model.'
-        : `Failed: ${msg}`)
+      if (!modelProgress.startsWith('⚠')) {
+        setModelProgress(isDeviceLost
+          ? '⚠ GPU out of memory — try a smaller model.'
+          : `Failed: ${msg}`)
+      }
     }
-  }, [selectedModel])
+  }, [selectedModel, modelProgress])
 
   // ── Build contexts for all 3 columns ─────────────────────────────────────
   const buildContexts = useCallback((raw: string, q: string, methods: typeof colMethods) => {
@@ -111,21 +140,20 @@ export default function App() {
 
   // ── Search RAG ────────────────────────────────────────────────────────────
   const searchRag = useCallback(async () => {
-    if (!question.trim() || !dbReady) return
-    setSearching(true); setColAnswers(['','',''])
-    setRawChunks([]); setRawContext('')
+    if (!question.trim() || totalChunks === 0) return
+    setSearching(true)
+    setColAnswers(['','',''])
+    setRawContext('')
     try {
-      const results = await duckdb.searchPdf(question, 5)
-      if (!results.length) { setSearching(false); return }
-      const chunks = results.map((r:any) => ({
-        pageNumber: r.page_number, content: r.content, tokens: countTokens(r.content)
-      }))
-      setRawChunks(chunks)
-      const raw = chunks.map((c:{pageNumber:number;content:string}) => `[Page ${c.pageNumber}]\n${c.content}`).join('\n\n')
+      const results = chunkStore.search(question, 5)
+      if (!results.length) return
+      const raw = results.map(r => `[Page ${r.pageNumber}]\n${r.content}`).join('\n\n')
       setRawContext(raw)
       setColContexts(buildContexts(raw, question, colMethods))
-    } finally { setSearching(false) }
-  }, [question, dbReady, colMethods, buildContexts])
+    } finally {
+      setSearching(false)
+    }
+  }, [question, totalChunks, colMethods, buildContexts])
 
   // Rebuild when column method changes
   useEffect(() => {
@@ -134,34 +162,30 @@ export default function App() {
 
   // ── Ask LLM for one column ────────────────────────────────────────────────
   const askLlm = useCallback(async (col: 0|1|2) => {
-    if (!engineRef.current || !colContexts[col] || !question.trim()) return
-    setColGenerating(g => { const n=[...g] as typeof g; n[col]=true; return n })
-    setColAnswers(a => { const n=[...a] as typeof a; n[col]=''; return n })
+    if (llmBridge.getStatus() !== 'ready' || !colContexts[col] || !question.trim()) return
+    setColGenerating(g => { const n = [...g] as typeof g; n[col] = true; return n })
+    setColAnswers(a => { const n = [...a] as typeof a; n[col] = ''; return n })
     try {
       const msgs = [
-        {role:'system', content:'Answer based only on the provided context. Be concise.'},
-        {role:'user', content:`Context:\n${colContexts[col]}\n\nQuestion: ${question}`},
+        { role: 'system', content: 'Answer based only on the provided context. Be concise.' },
+        { role: 'user',   content: `Context:\n${colContexts[col]}\n\nQuestion: ${question}` },
       ]
-      const stream = await engineRef.current.chat.completions.create({messages:msgs, stream:true, max_tokens:512})
-      let full = ''
-      for await (const chunk of stream) {
-        full += chunk.choices[0]?.delta?.content ?? ''
-        setColAnswers(a => { const n=[...a] as typeof a; n[col]=full; return n })
-      }
-    } catch(err:any) {
+      await llmBridge.generate(msgs, (_delta, full) => {
+        setColAnswers(a => { const n = [...a] as typeof a; n[col] = full; return n })
+      })
+    } catch (err: any) {
       const msg: string = (err as Error).message ?? String(err)
       const isDeviceLost = /disposed|device.?lost|device.?hung|DEVICE_HUNG|0x887A/i.test(msg)
       if (isDeviceLost) {
-        try { await engineRef.current?.unload() } catch (_) {}
-        engineRef.current = null
+        llmBridge.dispose()
         setModelStatus('idle')
         setColAnswers(['','',''])
         setModelProgress('⚠ GPU out of memory — reload a smaller model.')
       } else {
-        setColAnswers(a => { const n=[...a] as typeof a; n[col]=`Error: ${msg}`; return n })
+        setColAnswers(a => { const n = [...a] as typeof a; n[col] = `Error: ${msg}`; return n })
       }
     } finally {
-      setColGenerating(g => { const n=[...g] as typeof g; n[col]=false; return n })
+      setColGenerating(g => { const n = [...g] as typeof g; n[col] = false; return n })
     }
   }, [colContexts, question])
 
@@ -173,13 +197,13 @@ export default function App() {
       {/* Header */}
       <header className="px-4 py-2 border-b border-gray-800 bg-gray-900 flex items-center gap-3 shrink-0">
         <span className="text-cyan-400 font-black">◈ RAG Compression Demo</span>
-        <span className={`text-[10px] px-2 py-0.5 rounded border ${dbReady?'text-green-400 border-green-800':'text-yellow-400 border-yellow-800'}`}>
-          DuckDB {dbReady?'✓':'…'}
+        <span className="text-[10px] px-2 py-0.5 rounded border text-green-400 border-green-800">
+          In-Memory ✓
         </span>
         <span className={`text-[10px] px-2 py-0.5 rounded border ${modelStatus==='ready'?'text-green-400 border-green-800':modelStatus==='loading'?'text-yellow-400 border-yellow-800':'text-gray-600 border-gray-700'}`}>
           {modelStatus==='ready'?`LLM ✓ ${MODELS.find(m=>m.id===selectedModel)?.label}`:modelStatus==='loading'?'LLM loading…':'LLM not loaded'}
         </span>
-        {totalChunks>0 && <span className="text-[10px] text-orange-400 border border-orange-800 px-2 py-0.5 rounded">{totalChunks} chunks</span>}
+        {totalChunks > 0 && <span className="text-[10px] text-orange-400 border border-orange-800 px-2 py-0.5 rounded">{totalChunks} chunks</span>}
       </header>
 
       <div className="flex flex-1 overflow-hidden">
@@ -191,10 +215,10 @@ export default function App() {
           <div>
             <SLabel n="1" color="cyan">Upload PDF</SLabel>
             <label className="mt-2 flex flex-col items-center justify-center h-14 border-2 border-dashed border-gray-700 hover:border-cyan-600 rounded cursor-pointer text-[10px] text-gray-500 hover:text-gray-300 transition-colors"
-              onDragOver={e=>e.preventDefault()}
-              onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f?.type==='application/pdf')onPdfFile(f)}}>
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f?.type === 'application/pdf') onPdfFile(f) }}>
               <span>📄 Drop PDF or <span className="text-cyan-400 underline">browse</span></span>
-              <input type="file" accept=".pdf" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)onPdfFile(f);e.target.value=''}} />
+              <input type="file" accept=".pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onPdfFile(f); e.target.value = '' }} />
             </label>
             {pdfStatus.msg && (
               <div className={`mt-1 text-[9px] p-1.5 rounded leading-relaxed ${pdfStatus.type==='ok'?'text-green-400 bg-green-950/30 border border-green-800/40':pdfStatus.type==='err'?'text-red-400 bg-red-950/30 border border-red-800/40':'text-gray-400 bg-gray-800/60'}`}>
@@ -206,34 +230,34 @@ export default function App() {
           {/* Step 2 */}
           <div>
             <SLabel n="2" color="purple">Load LLM</SLabel>
-            <select value={selectedModel} onChange={async e=>{
+            <select value={selectedModel} onChange={async e => {
               setSelectedModel(e.target.value)
               setModelStatus('idle')
               setModelProgress('')
               setColAnswers(['','',''])
-              if (engineRef.current) {
-                try { await engineRef.current.unload() } catch (_) {}
-                engineRef.current = null
-              }
+              llmBridge.dispose()
             }}
-              disabled={modelStatus==='loading'}
+              disabled={modelStatus === 'loading'}
               className="w-full mt-1.5 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-[10px] text-gray-200 focus:outline-none focus:border-purple-500 disabled:opacity-50">
-              {MODELS.map(m=><option key={m.id} value={m.id}>{m.label} ({m.size})</option>)}
+              {MODELS.map(m => <option key={m.id} value={m.id}>{m.label} ({m.size})</option>)}
             </select>
-            {!MODELS.find(m=>m.id===selectedModel)?.safe && (
+            {!MODELS.find(m => m.id === selectedModel)?.safe && (
               <div className="mt-1 text-[9px] text-amber-400 bg-amber-950/30 border border-amber-800/40 rounded p-1.5">
-                ⚠ {MODELS.find(m=>m.id===selectedModel)?.size} — needs dedicated GPU with enough VRAM. If it crashes, switch to Qwen2 0.5B (~400 MB).
+                ⚠ {MODELS.find(m => m.id === selectedModel)?.size} — needs dedicated GPU with enough VRAM. If it crashes, switch to Qwen2 0.5B (~400 MB).
               </div>
             )}
-            {modelStatus==='no-webgpu' && <div className="text-[9px] text-amber-400 mt-1">WebGPU unavailable — Chrome 113+</div>}
-            {modelStatus!=='ready'
-              ? <button onClick={loadModel} disabled={modelStatus==='loading'}
+            {modelStatus === 'no-webgpu' && <div className="text-[9px] text-amber-400 mt-1">WebGPU unavailable — Chrome 113+</div>}
+            {modelStatus !== 'ready'
+              ? <button onClick={loadModel} disabled={modelStatus === 'loading'}
                   className="mt-1.5 w-full py-1.5 bg-purple-800 hover:bg-purple-700 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded text-[10px] font-bold transition-colors">
-                  {modelStatus==='loading'?'Loading…':'Load Model'}
+                  {modelStatus === 'loading' ? 'Loading…' : 'Load Model'}
                 </button>
-              : <div className="mt-1.5 text-[9px] text-green-400 bg-green-950/30 border border-green-800/40 rounded p-1.5">✓ {MODELS.find(m=>m.id===selectedModel)?.label} ready</div>
+              : <div className="mt-1.5 text-[9px] text-green-400 bg-green-950/30 border border-green-800/40 rounded p-1.5">✓ {MODELS.find(m => m.id === selectedModel)?.label} ready</div>
             }
-            {modelProgress && modelStatus==='loading' && <div className="mt-1 text-[9px] text-gray-500 break-words">{modelProgress}</div>}
+            {modelProgress && modelStatus === 'loading' && <div className="mt-1 text-[9px] text-gray-500 break-words">{modelProgress}</div>}
+            {modelProgress && modelStatus === 'idle' && modelProgress.startsWith('⚠') && (
+              <div className="mt-1 text-[9px] text-amber-400 break-words">{modelProgress}</div>
+            )}
           </div>
 
           {/* Legend */}
@@ -247,7 +271,6 @@ export default function App() {
                 </span>
               </div>
             ))}
-
           </div>
         </aside>
 
@@ -258,13 +281,13 @@ export default function App() {
           <div className="px-4 py-2 border-b border-gray-800 bg-gray-900/40 shrink-0">
             <SLabel n="3" color="blue">Ask a question — BM25 searches PDF chunks</SLabel>
             <div className="flex gap-2 mt-1.5">
-              <input value={question} onChange={e=>setQuestion(e.target.value)} onKeyDown={e=>e.key==='Enter'&&searchRag()}
-                placeholder={totalChunks>0?'e.g. What are the main findings?':'Upload a PDF first…'}
-                disabled={totalChunks===0}
+              <input value={question} onChange={e => setQuestion(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchRag()}
+                placeholder={totalChunks > 0 ? 'e.g. What are the main findings?' : 'Upload a PDF first…'}
+                disabled={totalChunks === 0}
                 className="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500 disabled:opacity-40" />
-              <button onClick={searchRag} disabled={searching||!question.trim()||totalChunks===0}
+              <button onClick={searchRag} disabled={searching || !question.trim() || totalChunks === 0}
                 className="px-4 py-1.5 bg-blue-700 hover:bg-blue-600 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded text-xs font-bold transition-colors">
-                {searching?'Searching…':'🔍 Search'}
+                {searching ? 'Searching…' : '🔍 Search'}
               </button>
             </div>
           </div>
@@ -276,7 +299,7 @@ export default function App() {
               {colMethods.map((m, i) => {
                 const tok = countTokens(colContexts[i] || '')
                 const info = METHODS.find(x => x.key === m)!
-                const pct = rawTokens > 0 ? Math.round((1 - tok/rawTokens)*100) : 0
+                const pct = rawTokens > 0 ? Math.round((1 - tok / rawTokens) * 100) : 0
                 return (
                   <span key={i} className="text-gray-500">
                     Col {i+1} ({info.label}): <span className={`font-bold ${CATEGORY_COLORS[info.category]}`}>{tok.toLocaleString()} tok</span>
@@ -293,8 +316,8 @@ export default function App() {
               const method = colMethods[col]
               const info = METHODS.find(x => x.key === method)!
               const tok = countTokens(colContexts[col] || '')
-              const pct = rawTokens > 0 ? Math.round((1 - tok/rawTokens)*100) : 0
-              const canAsk = modelStatus==='ready' && !!engineRef.current && !!colContexts[col] && !!question.trim()
+              const pct = rawTokens > 0 ? Math.round((1 - tok / rawTokens) * 100) : 0
+              const canAsk = modelStatus === 'ready' && !!colContexts[col] && !!question.trim()
 
               return (
                 <div key={col} className={`flex-1 flex flex-col overflow-hidden ${col < 2 ? 'border-r border-gray-800' : ''}`}>
@@ -302,7 +325,7 @@ export default function App() {
                   {/* Column header — method selector */}
                   <div className="px-2 py-1.5 border-b border-gray-800 bg-gray-900/40 shrink-0">
                     <select value={method}
-                      onChange={e => setColMethods(prev => { const n=[...prev] as typeof prev; n[col]=e.target.value as CompressionMethod; return n })}
+                      onChange={e => setColMethods(prev => { const n = [...prev] as typeof prev; n[col] = e.target.value as CompressionMethod; return n })}
                       className="w-full bg-gray-800 border border-gray-700 rounded px-1.5 py-1 text-[10px] text-gray-200 focus:outline-none focus:border-cyan-600">
                       {(['baseline','smart','classic','advanced'] as const).map(cat => (
                         <optgroup key={cat} label={`── ${cat==='smart'?'SMART COMPRESS':cat.toUpperCase()} ──`}>
@@ -338,13 +361,13 @@ export default function App() {
                     <div className="px-2 py-1.5 border-b border-gray-800 shrink-0">
                       <button onClick={() => askLlm(col)} disabled={!canAsk || colGenerating[col]}
                         className="w-full py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded text-[10px] font-bold transition-colors">
-                        {colGenerating[col] ? 'Generating…' : canAsk ? `Ask (${tok.toLocaleString()} tok)` : modelStatus!=='ready' ? 'Load model first' : 'Search first'}
+                        {colGenerating[col] ? 'Generating…' : canAsk ? `Ask (${tok.toLocaleString()} tok)` : modelStatus !== 'ready' ? 'Load model first' : 'Search first'}
                       </button>
                     </div>
                     <div className="flex-1 overflow-y-auto p-2">
                       {colAnswers[col]
                         ? <p className="text-[11px] text-gray-200 leading-relaxed whitespace-pre-wrap">{colAnswers[col]}</p>
-                        : <p className="text-gray-600 text-[9px] text-center mt-4">{modelStatus==='ready' ? 'Click Ask' : 'Load model first'}</p>
+                        : <p className="text-gray-600 text-[9px] text-center mt-4">{modelStatus === 'ready' ? 'Click Ask' : 'Load model first'}</p>
                       }
                     </div>
                   </div>
@@ -360,9 +383,9 @@ export default function App() {
 
 function SLabel({n,color,children}:{n:string;color:string;children:ReactNode}) {
   const bg: Record<string,string> = {
-    cyan:'bg-cyan-900/60 border-cyan-800 text-cyan-400',
-    purple:'bg-purple-900/60 border-purple-800 text-purple-400',
-    blue:'bg-blue-900/60 border-blue-800 text-blue-400',
+    cyan:   'bg-cyan-900/60 border-cyan-800 text-cyan-400',
+    purple: 'bg-purple-900/60 border-purple-800 text-purple-400',
+    blue:   'bg-blue-900/60 border-blue-800 text-blue-400',
   }
   return (
     <div className="flex items-center gap-2">

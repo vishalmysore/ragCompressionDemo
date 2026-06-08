@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react'
 import { extractPdf } from '../lib/pdf-bridge.ts'
-import { duckdb } from '../lib/duckdb-bridge.ts'
+import { chunkStore } from '../lib/chunk-store.ts'
 import { countTokens } from '../lib/tokenizer.ts'
 
 export interface PdfMeta { chunkCount: number; pageCount: number; fileName: string }
@@ -21,7 +21,7 @@ export function PdfUpload({ onChunksLoaded }: Props) {
       const buf = await file.arrayBuffer()
       const { chunks, numPages } = await extractPdf(buf)
 
-      setStatus(`Extracted ${chunks.length} chunks from ${numPages} pages — inserting into DuckDB…`)
+      setStatus(`Extracted ${chunks.length} chunks from ${numPages} pages — indexing…`)
 
       const dbChunks = chunks.map((c, i) => ({
         chunkId: `${file.name.replace(/[^a-z0-9]/gi, '_')}__p${c.pageNumber}__c${i}`,
@@ -31,7 +31,8 @@ export function PdfUpload({ onChunksLoaded }: Props) {
         tokenCount: countTokens(c.content),
       }))
 
-      await duckdb.insertPdfChunks(dbChunks)
+      chunkStore.reset()
+      chunkStore.insert(dbChunks)
 
       // Preview: first 5 chunks
       const preview = dbChunks.slice(0, 5)
