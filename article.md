@@ -6,7 +6,7 @@ While building this demo I looked at a wide range of compression approaches — 
 
 The purpose of this article is not just to describe those algorithms in theory — it is to let you **see them working live, right now, with no setup**. Open the demo in Chrome, upload a PDF, pick a local LLM, and watch three compression levels answer your question side by side. No API key. No server. No install.
 
-[**→ Try the live demo**](https://github.com/vishalmysore/ragCompressionDemo)
+[**→ Try the live demo**](https://vishalmysore.github.io/ragCompressionDemo/)
 
 ---
 
@@ -180,7 +180,7 @@ The demo provides four additional methods for comparison, all running client-sid
 
 ## Running Entirely in the Browser
 
-The entire engine is TypeScript, running in the browser with no backend. DuckDB WASM handles vector storage in a Web Worker; WebLLM runs inference on your GPU via WebGPU. Compression happens client-side before context is sent to the LLM — no API key, no server round-trips.
+The entire engine is TypeScript, running in the browser with no backend. PDF chunks are stored in an in-memory keyword index — no database required. WebLLM runs inference on your GPU via WebGPU. Compression happens client-side before context is sent to the LLM — no API key, no server round-trips.
 
 ---
 
