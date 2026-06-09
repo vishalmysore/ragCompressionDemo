@@ -39,25 +39,25 @@ This family physically removes tokens from the retrieved text before it reaches 
 
 **Query-aware sentence pruning** is the most common approach. Each sentence in the retrieved chunks is scored for relevance to the specific query, and low-scoring sentences are dropped. The scoring can be as simple as TF-IDF overlap or as sophisticated as a cross-encoder model (like PROVENCE or LLMLingua) that uses a small, fast language model to estimate the conditional probability of each token being useful for answering the query. LLMLingua, for example, can achieve 2x–10x compression with less than 5% degradation in downstream task accuracy.
 
-> **LLM Required** ❌ (basic) / ✅ (advanced) &nbsp;|&nbsp; **Libraries** ✅ — basic: `scikit-learn`, `nltk`, `rank_bm25` · advanced: `llmlingua`, `transformers` (Microsoft/PROVENCE cross-encoder)
+> **LLM Required** ❌ (basic) / ✅ (advanced) &nbsp;|&nbsp; **Python** ✅ `scikit-learn`, `rank_bm25` · advanced: `llmlingua` &nbsp;|&nbsp; **JS** ✅ `natural`, `wink-nlp` · advanced: `@huggingface/transformers`
 
 > **Simple example.** You ask: *"What are the side effects of ibuprofen?"* The retrieved document is a 4-page drug leaflet. Query-aware pruning reads every sentence and asks "does this help answer the side-effects question?" Sentences like *"Store below 25°C in a dry place"* and *"Each tablet contains 400mg of ibuprofen"* score near zero — they share no words with the query and answer nothing. Sentences like *"Common side effects include nausea, stomach pain, and headache"* score high and are kept. The LLM receives only the high-scoring sentences — a paragraph instead of four pages.
 
 **Extractive summarisation** via algorithms like TextRank builds a graph of sentences where edges represent lexical similarity. Running PageRank-style iteration over this graph surfaces the sentences that are most "central" to the document's themes — without needing a generative model to rewrite anything. It's fast, deterministic, and runs entirely in the browser.
 
-> **LLM Required** ❌ &nbsp;|&nbsp; **Libraries** ✅ — `sumy`, `pytextrank`, `networkx` (Python) · or plain JS/TS with no dependencies (as in this demo)
+> **LLM Required** ❌ &nbsp;|&nbsp; **Python** ✅ `sumy`, `pytextrank`, `networkx` &nbsp;|&nbsp; **JS** ✅ `natural` (has TF-IDF scoring) · or plain JS with no dependencies (as in this demo)
 
 > **Simple example.** Imagine each sentence in a document as a person in a room. Two people are "connected" if they talk about similar things. TextRank asks: who is connected to the most other people? The most socially connected person — the one whose topics come up everywhere — represents the document's core theme. TextRank keeps those "well-connected" sentences and drops the isolated ones that barely relate to anything else in the document. No rewriting, no AI generation — just a popularity contest among sentences.
 
 **Structural compression** routes different content types to specialised algorithms. Log output, JSON API responses, and source code each have very different information distributions. A log compressor should keep ERROR lines and their surrounding context, deduplicate repeated warnings, and summarise passing-test noise. A JSON compressor should keep error-flagged records and take a representative stride-sample of the rest, rather than truncating. A code compressor should keep function signatures and strip bodies. Routing content to the right algorithm beats a one-size-fits-all approach by a significant margin.
 
-> **LLM Required** ❌ &nbsp;|&nbsp; **Libraries** ✅ — `headroom` (Rust) · `loguru`, `json` (Python stdlib) · or plain regex in any language — no external packages required
+> **LLM Required** ❌ &nbsp;|&nbsp; **Python** ✅ `headroom` (Rust/Python), plain regex &nbsp;|&nbsp; **JS** ✅ plain regex — no npm package needed (this demo implements it in ~200 lines of TypeScript)
 
 > **Simple example.** Think of it like sorting your mail. You wouldn't read a 500-page server log the same way you'd read a JSON invoice or a Python file. A log compressor is like a triage nurse: it immediately flags anything with "ERROR" or "FAILED", keeps the three lines before it (which usually explain *why* it failed), and throws away the 9,800 lines of `PASSED [100%]`. A code compressor is like reading only the chapter titles and section headings of a textbook — you keep `def authenticate(user, token) -> bool` so the LLM knows the function exists and what it returns, but you strip the 40 lines of implementation detail inside it. Sending a log through a code compressor (or vice versa) would produce garbage; routing matters.
 
 **SimHash deduplication** removes near-duplicate sentences using a 64-bit locality-sensitive hash. Sentences within a small Hamming distance (≤ 8 bits) are treated as duplicates and the redundant copy is dropped. This is particularly effective on legal documents, form templates, and any corpus with repetitive boilerplate.
 
-> **LLM Required** ❌ &nbsp;|&nbsp; **Libraries** ✅ — `datasketch`, `simhash` (Python) · `spark-md5` (JS, as used in this demo) · or a 20-line custom implementation in any language
+> **LLM Required** ❌ &nbsp;|&nbsp; **Python** ✅ `datasketch`, `simhash` &nbsp;|&nbsp; **JS** ✅ `simhash-js`, `spark-md5` (used in this demo)
 
 > **Simple example.** A 50-page rental contract might contain the phrase *"The tenant shall not sublet the premises without prior written consent of the landlord"* in section 4, section 11, and the appendix — worded almost identically each time. SimHash converts each sentence into a short numeric fingerprint (like a fingerprint for text). Two sentences with very similar fingerprints are almost certainly saying the same thing. The second and third copies get dropped. The LLM sees the clause once — which is all it needs — instead of three times eating up token budget.
 
@@ -67,11 +67,11 @@ This family bypasses text entirely. Instead of producing a shorter string, it pr
 
 **In-Context Autoencoders (ICAE)** train a small encoder model to compress a long document into a fixed number of "memory tokens" — dense vectors that capture the document's meaning in a compact form. The LLM is then fine-tuned to read those memory tokens as if they were part of its context. This can achieve compression ratios of 16x or more, at the cost of requiring a fine-tuned LLM that understands the compressed representation.
 
-> **LLM Required** ✅ &nbsp;|&nbsp; **Libraries** ✅ — `transformers`, `torch`, `peft` (for fine-tuning) · GPU training infrastructure required · research-level complexity
+> **LLM Required** ✅ &nbsp;|&nbsp; **Python** ✅ `transformers`, `torch`, `peft` &nbsp;|&nbsp; **JS** ✅ `@huggingface/transformers` · GPU training infra required · research-level complexity
 
 **xRAG and OSCAR** take a similar approach: retrieved documents are compressed to a single embedding vector (or a small cluster of them) and inserted into the LLM prompt at inference time as a virtual token. The LLM sees a prompt that is orders of magnitude shorter than the original retrieved text.
 
-> **LLM Required** ✅ &nbsp;|&nbsp; **Libraries** ✅ — `sentence-transformers`, `transformers`, `faiss-cpu` · embedding model (e.g. `all-MiniLM-L6-v2`) must run at inference time
+> **LLM Required** ✅ &nbsp;|&nbsp; **Python** ✅ `sentence-transformers`, `faiss-cpu` &nbsp;|&nbsp; **JS** ✅ `@huggingface/transformers`, `@xenova/transformers` · embedding model (e.g. `all-MiniLM-L6-v2`) must run at inference time
 
 The tradeoff is fundamental: soft compression can achieve extreme compression ratios, but it is tightly coupled to a specific LLM architecture and requires training infrastructure. Hard compression is model-agnostic, runs without any ML inference, and can be deployed as a pure compute layer in any RAG pipeline.
 
@@ -79,18 +79,18 @@ The tradeoff is fundamental: soft compression can achieve extreme compression ra
 
 ## Quick Reference: GenAI Dependency by Technique
 
-| Technique | LLM Required | Libraries |
-|---|---|---|
-| TF-IDF sentence scoring | ❌ | ✅ `scikit-learn`, `nltk`, `rank_bm25` |
-| TextRank | ❌ | ✅ `sumy`, `pytextrank`, `networkx` |
-| Structural compression (logs/JSON/code) | ❌ | ✅ `headroom`, or plain regex — no packages needed |
-| SimHash deduplication | ❌ | ✅ `datasketch`, `simhash`, `spark-md5` |
-| Stopword removal | ❌ | ✅ `nltk`, `spaCy`, or a plain word-list file |
-| Kneedle / adaptive sizing | ❌ | ✅ `kneed` (Python), or ~30 lines of math |
-| Query-aware pruning (basic) | ❌ | ✅ `scikit-learn`, `rank_bm25` |
-| Query-aware pruning (advanced) | ✅ | ✅ `llmlingua`, `transformers` (PROVENCE cross-encoder) |
-| xRAG / OSCAR | ✅ | ✅ `sentence-transformers`, `transformers`, `faiss-cpu` |
-| In-Context Autoencoders (ICAE) | ✅ | ✅ `transformers`, `torch`, `peft` + GPU training infra |
+| Technique | LLM Required | Python Libraries | JavaScript Libraries |
+|---|---|---|---|
+| TF-IDF sentence scoring | ❌ | `scikit-learn`, `rank_bm25` | `natural`, `wink-nlp` |
+| TextRank | ❌ | `sumy`, `pytextrank`, `networkx` | `natural` (TF-IDF scoring), or plain JS (as in this demo) |
+| Structural compression (logs/JSON/code) | ❌ | `headroom` (Rust/Python), plain regex | plain regex / no package needed |
+| SimHash deduplication | ❌ | `datasketch`, `simhash` | `simhash-js`, `spark-md5` (as in this demo) |
+| Stopword removal | ❌ | `nltk`, `spaCy` | `stopword` (62 languages, browser + Node) |
+| Kneedle / adaptive sizing | ❌ | `kneed` | no npm package — ~30 lines of math (see this demo's `adaptive-sizer.ts`) |
+| Query-aware pruning (basic) | ❌ | `scikit-learn`, `rank_bm25` | `natural`, `node-nlp`, `wink-nlp` |
+| Query-aware pruning (advanced) | ✅ | `llmlingua`, `transformers` | `@huggingface/transformers` (runs ONNX models in browser) |
+| xRAG / OSCAR | ✅ | `sentence-transformers`, `faiss-cpu` | `@huggingface/transformers`, `@xenova/transformers` |
+| In-Context Autoencoders (ICAE) | ✅ | `transformers`, `torch`, `peft` | `@huggingface/transformers` + GPU infra — research-level |
 
 The key takeaway: **most compression that matters in a production RAG system needs no LLM at all.** The no-AI techniques cover the vast majority of practical use cases — and since they add zero model inference overhead, they're also the fastest and cheapest to run.
 
