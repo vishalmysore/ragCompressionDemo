@@ -102,9 +102,13 @@ Underlying the best hard compression algorithms is a key insight: retrieved docu
 
 This can be measured empirically. Build a cumulative coverage curve: sort sentences by relevance score, then track how many unique word-bigrams you've seen as you include each sentence one by one. Early sentences add many new bigrams. Later sentences mostly repeat vocabulary already seen. The curve bends — it has a **knee**.
 
+> **Simple example.** Imagine reading a Wikipedia article on climate change aloud to a friend. After the first three paragraphs, your friend says *"OK, I get the idea — rising temperatures, CO₂, ice caps melting."* Each new paragraph you read after that is mostly reconfirming what they already know — sea levels, heat waves, coral reefs — just with different words. The moment your friend stopped learning new things is the knee. Everything after it is repetition, and the compressor cuts it.
+
 The Kneedle algorithm finds this knee mathematically by locating the point of maximum vertical distance from the diagonal of the normalised curve. Everything past the knee is by definition redundant with what came before it, and can be safely dropped.
 
 This principle makes compression adaptive rather than fixed-ratio. A dense, information-rich document gets a higher `k` (more sentences kept). A repetitive, padded document gets a lower `k`. The budget is driven by the document's actual information density, not an arbitrary "keep 40%" rule.
+
+> **This article has a knee too.** If you apply the same principle here, the knee lands roughly at the end of the *Concrete Example* section above — after the diabetes query walkthrough, the cost table, and the before/after answers, a reader asking *"how does RAG compression work and why does it matter?"* has received the core answer. The sections that follow (*What This Demo Shows*, *When to Use Compression*) add useful context but introduce few genuinely new concepts. A compressor targeting this article for that query would keep everything up to and including the cost table, and summarise the rest into a sentence or two.
 
 ---
 
