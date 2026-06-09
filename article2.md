@@ -39,17 +39,25 @@ This family physically removes tokens from the retrieved text before it reaches 
 
 **Query-aware sentence pruning** is the most common approach. Each sentence in the retrieved chunks is scored for relevance to the specific query, and low-scoring sentences are dropped. The scoring can be as simple as TF-IDF overlap or as sophisticated as a cross-encoder model (like PROVENCE or LLMLingua) that uses a small, fast language model to estimate the conditional probability of each token being useful for answering the query. LLMLingua, for example, can achieve 2x–10x compression with less than 5% degradation in downstream task accuracy.
 
+> 🤖 **GenAI required?** — **Optional.** The basic version (TF-IDF word overlap) is pure math — no AI needed, runs in milliseconds. The advanced version (LLMLingua, PROVENCE) uses a small secondary language model to score each token, which gives much better accuracy but adds a model inference step. You can start without GenAI and upgrade to the ML-powered scorer later.
+
 > **Simple example.** You ask: *"What are the side effects of ibuprofen?"* The retrieved document is a 4-page drug leaflet. Query-aware pruning reads every sentence and asks "does this help answer the side-effects question?" Sentences like *"Store below 25°C in a dry place"* and *"Each tablet contains 400mg of ibuprofen"* score near zero — they share no words with the query and answer nothing. Sentences like *"Common side effects include nausea, stomach pain, and headache"* score high and are kept. The LLM receives only the high-scoring sentences — a paragraph instead of four pages.
 
 **Extractive summarisation** via algorithms like TextRank builds a graph of sentences where edges represent lexical similarity. Running PageRank-style iteration over this graph surfaces the sentences that are most "central" to the document's themes — without needing a generative model to rewrite anything. It's fast, deterministic, and runs entirely in the browser.
+
+> 🤖 **GenAI required?** — **No.** TextRank is pure graph math — the same PageRank algorithm that powered early Google Search, applied to sentences instead of web pages. No model weights, no inference, no API call. It runs deterministically in the browser on any device.
 
 > **Simple example.** Imagine each sentence in a document as a person in a room. Two people are "connected" if they talk about similar things. TextRank asks: who is connected to the most other people? The most socially connected person — the one whose topics come up everywhere — represents the document's core theme. TextRank keeps those "well-connected" sentences and drops the isolated ones that barely relate to anything else in the document. No rewriting, no AI generation — just a popularity contest among sentences.
 
 **Structural compression** routes different content types to specialised algorithms. Log output, JSON API responses, and source code each have very different information distributions. A log compressor should keep ERROR lines and their surrounding context, deduplicate repeated warnings, and summarise passing-test noise. A JSON compressor should keep error-flagged records and take a representative stride-sample of the rest, rather than truncating. A code compressor should keep function signatures and strip bodies. Routing content to the right algorithm beats a one-size-fits-all approach by a significant margin.
 
+> 🤖 **GenAI required?** — **No.** All structural compressors are rule-based: regex patterns, keyword lists, indentation counting, and heuristics. They have no understanding of meaning — they apply deterministic rules like "always keep lines containing ERROR" or "always keep function signatures". Fast, predictable, and zero cost to run.
+
 > **Simple example.** Think of it like sorting your mail. You wouldn't read a 500-page server log the same way you'd read a JSON invoice or a Python file. A log compressor is like a triage nurse: it immediately flags anything with "ERROR" or "FAILED", keeps the three lines before it (which usually explain *why* it failed), and throws away the 9,800 lines of `PASSED [100%]`. A code compressor is like reading only the chapter titles and section headings of a textbook — you keep `def authenticate(user, token) -> bool` so the LLM knows the function exists and what it returns, but you strip the 40 lines of implementation detail inside it. Sending a log through a code compressor (or vice versa) would produce garbage; routing matters.
 
 **SimHash deduplication** removes near-duplicate sentences using a 64-bit locality-sensitive hash. Sentences within a small Hamming distance (≤ 8 bits) are treated as duplicates and the redundant copy is dropped. This is particularly effective on legal documents, form templates, and any corpus with repetitive boilerplate.
+
+> 🤖 **GenAI required?** — **No.** SimHash is a classical computer science algorithm from 2007 — it predates the current AI era entirely. It converts text into a numeric fingerprint using hashing and bit-counting. No model, no embeddings, no GPU. It runs in microseconds per sentence.
 
 > **Simple example.** A 50-page rental contract might contain the phrase *"The tenant shall not sublet the premises without prior written consent of the landlord"* in section 4, section 11, and the appendix — worded almost identically each time. SimHash converts each sentence into a short numeric fingerprint (like a fingerprint for text). Two sentences with very similar fingerprints are almost certainly saying the same thing. The second and third copies get dropped. The LLM sees the clause once — which is all it needs — instead of three times eating up token budget.
 
@@ -59,9 +67,32 @@ This family bypasses text entirely. Instead of producing a shorter string, it pr
 
 **In-Context Autoencoders (ICAE)** train a small encoder model to compress a long document into a fixed number of "memory tokens" — dense vectors that capture the document's meaning in a compact form. The LLM is then fine-tuned to read those memory tokens as if they were part of its context. This can achieve compression ratios of 16x or more, at the cost of requiring a fine-tuned LLM that understands the compressed representation.
 
+> 🤖 **GenAI required?** — **Yes, heavily.** ICAE requires training a custom encoder model and fine-tuning the LLM to understand its output. This is a research-level technique that needs GPU infrastructure and ML expertise to set up. Not suitable for most production teams without a dedicated ML engineering function.
+
 **xRAG and OSCAR** take a similar approach: retrieved documents are compressed to a single embedding vector (or a small cluster of them) and inserted into the LLM prompt at inference time as a virtual token. The LLM sees a prompt that is orders of magnitude shorter than the original retrieved text.
 
+> 🤖 **GenAI required?** — **Yes.** xRAG and OSCAR both require an embedding model to encode the retrieved documents, plus an LLM that has been adapted to accept those embeddings as input tokens. The embedding step alone requires a model like a sentence-transformer running at inference time. Powerful, but a significant infrastructure investment.
+
 The tradeoff is fundamental: soft compression can achieve extreme compression ratios, but it is tightly coupled to a specific LLM architecture and requires training infrastructure. Hard compression is model-agnostic, runs without any ML inference, and can be deployed as a pure compute layer in any RAG pipeline.
+
+---
+
+## Quick Reference: GenAI Dependency by Technique
+
+| Technique | GenAI needed? | Why |
+|---|---|---|
+| TF-IDF sentence scoring | ❌ No | Pure term-frequency math |
+| TextRank | ❌ No | Graph algorithm (PageRank variant) |
+| Structural compression (logs/JSON/code) | ❌ No | Rule-based heuristics and regex |
+| SimHash deduplication | ❌ No | Classical hashing algorithm |
+| Stopword removal | ❌ No | Static word list + regex |
+| Kneedle / adaptive sizing | ❌ No | Statistics — curve fitting |
+| Query-aware pruning (basic) | ❌ No | TF-IDF word overlap scoring |
+| Query-aware pruning (advanced) | ⚠️ Optional | Small cross-encoder model (LLMLingua, PROVENCE) |
+| xRAG / OSCAR | ✅ Yes | Embedding model + adapted LLM required |
+| In-Context Autoencoders (ICAE) | ✅ Yes | Custom encoder training + LLM fine-tuning required |
+
+The key takeaway: **most compression that matters in a production RAG system needs no GenAI at all.** The no-AI techniques cover the vast majority of practical use cases — and since they add zero model inference overhead, they're also the fastest and cheapest to run.
 
 ---
 
